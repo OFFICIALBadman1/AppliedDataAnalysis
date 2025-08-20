@@ -2,8 +2,8 @@
 ---
 title: "Week 2 Examination Assignments - Data Analysis"
 author: "Isak Jonsson Zachari"
-date: "2025-03-16"
-format: 
+date: "2025-08-29"
+format:
   html:
     toc: true                # Table of Contents
     toc-location: left       # TOC on the left side
@@ -21,6 +21,14 @@ This report presents the analysis of two datasets as part of the Week 2 examinat
 2. **Wine Quality Dataset**: Portuguese red wine chemical properties and quality ratings
 
 The analysis includes data import, cleaning, transformation, and exploratory analysis techniques.
+
+```{r}
+pkgs <- c("readr", "tidyverse", "dlookr", "flextable", "tinytex", "classInt")
+for (i in pkgs){
+    if(! i %in% installed.packages()){
+        install.packages(i, dependencies = TRUE)}
+    require(i) }
+```
 
 ```{r}
 #| label: setup
@@ -45,10 +53,10 @@ knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 
 ## Dataset Background
 
-**Source**: UCI Machine Learning Repository  
-**Time Period**: December 1, 2009 to December 9, 2011 (2 years)  
-**Company**: UK-based online retailer specializing in unique gift-ware  
-**Customer Base**: Many wholesalers  
+**Source**: UCI Machine Learning Repository
+**Time Period**: December 1, 2009 to December 9, 2011 (2 years)
+**Company**: UK-based online retailer specializing in unique gift-ware
+**Customer Base**: Many wholesalers
 
 ## 1.1 Data Import and Initial Processing
 
@@ -62,14 +70,14 @@ excel_sheets_list <- excel_sheets(path)
 print(paste("Available sheets:", paste(excel_sheets_list, collapse = ", ")))
 
 # Import and combine all sheets using map_df
-retail_data <- excel_sheets(path) %>% 
+retail_data <- excel_sheets(path) %>%
   map_df(~ read_excel(path, sheet = .x) %>%
            mutate(Sheet = .x))
 
 # Rename variables and set appropriate data types
 retail_data_clean <- retail_data %>%
   rename(
-    ProductNumber = StockCode, 
+    ProductNumber = StockCode,
     Customer_ID = `Customer ID`
   ) %>%
   mutate(
@@ -124,7 +132,7 @@ print(transaction_summary)
 ```{r retail-countries}
 #| label: retail-countries
 #| code-summary: "Countries analysis"
-
+#|
 # Top 10 countries by transaction volume
 top_countries <- retail_data_clean %>%
   count(Country, sort = TRUE) %>%
@@ -146,24 +154,24 @@ top_countries %>%
 # 7. • Are there missing data in the dataset?
 # • If so, which variables/features have missing data?
 
-any(is.na(retail_data_1))
-#True: Ja det finns missing values 
+any(is.na(retail_data_clean))
+#True: Ja det finns missing values
 
-sum(is.na(retail_data_1))
+sum(is.na(retail_data_clean))
 # 247 389 stycken NA
 
-colSums(is.na(retail_data_1))
-#Description har 4382 NA värden (vilket kan påverka analysen när man sen ska analysera olika produkter, medan Customer_ID har 243 007 st NA värden (cirka 23% av datan) 
+colSums(is.na(retail_data_clean))
+#Description har 4382 NA värden (vilket kan påverka analysen när man sen ska analysera olika produkter, medan Customer_ID har 243 007 st NA värden (cirka 23% av datan)
 
 ```
 
 ```{r}
-#Construct and name a new dataset where all rows that contain missing values are removed.  How many rows(observations) were removed?
+#Construct and name a new dataset where all rows that contain missing values are removed.  How many rows(observations) were removed?
 library(tidyverse)
-data_no_NA <- drop.na(retail_data_1)
+data_no_NA <- drop_na(retail_data_clean)
 
-print(nrow(retail_data_1) - nrow(data_no_NA))
-#243 007 rader har tagits bort.  
+print(nrow(retail_data_clean) - nrow(data_no_NA))
+#243 007 rows where removed
 
 
 ```
@@ -175,8 +183,8 @@ library(ggplot2)
 #9:Boxplot för Priet på Order
 ggplot(data_no_NA, aes(y = Price)) +
   geom_boxplot(fill = "steelblue", outlier.color = "red") +
- scale_y_continuous(limits = c(0, 50)) + #Zoomar in då det finns extrema uteliggare, ex på 1000 och negativa Priser som kan vara återbetalning. 
-  labs(title = "Fördelning av of Priser (Exkluderat extrema uteliggare", 
+ scale_y_continuous(limits = c(0, 50)) + #Zoomar in då det finns extrema uteliggare, ex på 1000 och negativa Priser som kan vara återbetalning.
+  labs(title = "Distribution of proce (exdluded extremt outliers",
        y = "Pris") +
   theme_minimal()
 
@@ -195,7 +203,7 @@ IQR <- Q3 - Q1
 undre_gräns <- Q1 - 1.5 * IQR
 övre_gräns <- Q3 + 1.5 * IQR
 
-# Extraherar Uteliggarna 
+# Extraherar Uteliggarna
 price_outliers <- data_no_NA %>%
   filter(Price < undre_gräns | Price > övre_gräns)
 
@@ -204,8 +212,8 @@ n_uteliggare <- nrow(price_outliers)
 
 print(n_uteliggare)
 
-#Det finns 71 125 uteliggare. 
-# Det finns negativa priser, extremer. Men dessa är 
+#Det finns 71 125 uteliggare.
+# Det finns negativa priser, extremer
 
 ```
 
@@ -225,7 +233,7 @@ clean_data <- data_no_NA %>%
       Price > 2.5 & Price <= 5 ~ "Intermediate order",
       Price > 5 ~ "Large order"
     ),
-    price_bin = factor(price_bin, 
+    price_bin = factor(price_bin,
                      levels = c("Small order", "Intermediate order", "Large order"))
   )
 
@@ -237,11 +245,17 @@ order_counts <- clean_data %>%
     Cumulative = cumsum(Percentage)
   )
 
+
+# Small orders (≤£2.5)**: 59.83% of all orders - the majority!
+# Intermediate orders (£2.5-5)**: 26.06% of orders
+# Large orders (>£5)**: Only 14.11% of orders
+
+
 # Display as professional table
 order_counts %>%
   flextable() %>%
   set_header_labels(
-    price_bin = "Price Category", 
+    price_bin = "Price Category",
     Order_Count = "Number of Orders",
     Percentage = "Percentage",
     Cumulative = "Cumulative %"
@@ -254,7 +268,7 @@ order_counts %>%
 # Visualize order distribution by price category
 ggplot(clean_data, aes(x = price_bin, fill = price_bin)) +
   geom_bar() +
-  geom_text(stat = "count", aes(label = scales::comma(..count..)), 
+  geom_text(stat = "count", aes(label = scales::comma(..count..)),
             vjust = -0.5, size = 3.5) +
   scale_fill_brewer(palette = "Blues") +
   labs(
@@ -298,103 +312,126 @@ revenue_by_category %>%
   autofit()
 ```
 
+
+Summary:
+##  80/20 rule.
+14.11% of orders (Large) → 54.28% of revenue
+40.17% of orders (Int+Large) → 79.55% of revenue
+##
+
+#### ** Recommendations:**
+1. **Focus on Large Orders (Category A)**
+    - These customers generate 4x more revenue per order (£14.15 vs £1.26)
+    - Priority customer service and retention programs
+    - Premium shipping options
+
+2. **Optimize Small Orders (Category C)**
+    - High volume but low value - optimize for efficiency
+    - Automated processing systems
+    - Bundle offers to increase order size
+
+3. **Nurture Intermediate Orders (Category B)**
+    - Growth opportunity - encourage upselling to large order category
+    - Targeted marketing campaigns
+
+
+
 # Assignment 2: Wine Quality Analysis
 
 ## Dataset Background
 
-**Source**: UCI Machine Learning Repository - Portuguese "Vinho Verde" red wine  
-**Observations**: 1,599 wine samples  
-**Features**: 11 chemical properties + quality rating (0-10 scale)  
+**Source**: UCI Machine Learning Repository - Portuguese "Vinho Verde" red wine
+**Observations**: 1,599 wine samples
+**Features**: 11 chemical properties + quality rating (0-10 scale)
 **Task**: Analyze chemical factors affecting wine quality
 
 ## 2.1 Data Import and Variable Renaming
 
 ```{r wine-import}
-#| label: wine-import
-#| code-summary: "Import wine data with proper delimiter handling"
+# Load required packages
+library(tidyverse)
+library(readr)
+library(dlookr)
+library(flextable)
+library(corrplot)
+
+# Task 1: Import dataset (Power BI )
+# Task 2: Import into R with correct delimiter and data types
 
 # Define clean variable names (no spaces, consistent naming)
 col_names <- c(
-  "Fixed_acidity", "Volatile_acidity", "Citric_acid", 
-  "Residual_sugar", "Chlorides", "Free_sulfur_dioxide",
-  "Total_sulfur_dioxide", "Density", "pH", "Sulphates",
-  "Alcohol", "Quality"
+  "fixed_acidity", "volatile_acidity", "citric_acid",
+  "residual_sugar", "chlorides", "free_sulfur_dioxide",
+  "total_sulfur_dioxide", "density", "pH", "sulphates",
+  "alcohol", "quality"
 )
 
-# Import with semicolon delimiter and comma decimal separator
-wine_data <- read_delim("Week2/wine/winequality-red.csv", 
-                       delim = ";", 
+# Import with semicolon delimiter and comma decimal separator (Task 2)
+wine_data <- read_delim("Week2/wine/winequality-red.csv",
+                       delim = ";",
                        locale = locale(decimal_mark = ",")) %>%
   setNames(col_names) %>%
-  mutate(Quality = as.integer(Quality))  # Convert quality to integer
+  mutate(quality = as.integer(quality))  # Convert quality to integer
 
 print("Wine data structure:")
 str(wine_data)
 
-print("First few rows:")
-head(wine_data) %>%
-  flextable() %>%
-  autofit()
+# Task 3: Variable names done
+# All variables now have clean names without spaces
+
+
 ```
 
 ## 2.2 Outlier Analysis
 
 ```{r wine-outliers}
-#| label: wine-outliers
-#| code-summary: "Identify variables with highest outlier ratios"
-
-# Diagnose outliers using dlookr package
+# Task 4: Diagnose outliers - Top 3 variables
 outlier_report <- diagnose_numeric(wine_data)
 
-# Create top-3 outlier summary
 top_outliers <- outlier_report %>%
   select(variables, outliers = outlier) %>%
   mutate(outlier_ratio = round(outliers / nrow(wine_data), 4)) %>%
   arrange(desc(outlier_ratio)) %>%
   slice_head(n = 3)
 
-cat("Top 3 variables with highest outlier ratios:\n")
+cat("Task 4 - Top 3 variables with highest outlier ratios:\n")
 print(top_outliers)
 
-# Create professional table
+# Professional table for outliers
 top_outliers %>%
-  mutate(
-    outlier_percentage = paste0(round(outlier_ratio * 100, 1), "%")
-  ) %>%
+  mutate(outlier_percentage = paste0(round(outlier_ratio * 100, 1), "%")) %>%
   select(Variable = variables, `Outlier Count` = outliers, `Outlier Ratio` = outlier_percentage) %>%
   flextable() %>%
   bg(part = "header", bg = "#2C3E50") %>%
   color(part = "header", color = "white") %>%
   align(align = "center", part = "all") %>%
   autofit()
+
 ```
 
-**Key Finding**: Density (14.9%), Residual_sugar (9.7%), and Chlorides (9.2%) have the highest outlier ratios.
+**Key Finding**: density (14.9%), residual_sugar (9.7%), and  chlorides (9.2%) have the highest outlier ratios.
 
 ## 2.3 Quality Correlation Analysis
 
 ```{r wine-correlation}
-#| label: wine-correlation
-#| code-summary: "Correlation analysis with wine quality"
-
-# Calculate correlations with quality
-cor_quality <- cor(wine_data[, sapply(wine_data, is.numeric)], 
-                   method = "pearson")[, "Quality"]
+# Task 5: Correlation analysis with quality
+cor_quality <- cor(wine_data[, sapply(wine_data, is.numeric)],
+                   method = "pearson")[, "quality"]
 
 # Create correlation dataframe
 cor_df <- data.frame(
-  Variable = names(cor_quality)[names(cor_quality) != "Quality"],
-  Correlation = cor_quality[names(cor_quality) != "Quality"]
+  Variable = names(cor_quality)[names(cor_quality) != "quality"],
+  Correlation = cor_quality[names(cor_quality) != "quality"]
 ) %>%
   arrange(Correlation) %>%
   mutate(Variable = factor(Variable, levels = Variable))
 
-# Create correlation barplot
-ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
+# Create correlation barplot (Creative visualization)
+correlation_plot <- ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
   geom_col(width = 0.7) +
-  geom_text(aes(label = round(Correlation, 2)), 
-            position = position_dodge(width = 0.9), 
-            hjust = ifelse(cor_df$Correlation > 0, -0.1, 1.1), 
+  geom_text(aes(label = round(Correlation, 2)),
+            position = position_dodge(width = 0.9),
+            hjust = ifelse(cor_df$Correlation > 0, -0.1, 1.1),
             size = 3.5) +
   scale_fill_gradient2(low = "red", mid = "white", high = "blue",
                        midpoint = 0, limits = c(-1, 1)) +
@@ -413,229 +450,126 @@ ggplot(cor_df, aes(x = Variable, y = Correlation, fill = Correlation)) +
     axis.text.y = element_text(size = 10)
   )
 
-# Identify extreme correlations
+print(correlation_plot)
+
+# Find extreme correlations
 most_negative <- cor_df[which.min(cor_df$Correlation), ]
 most_positive <- cor_df[which.max(cor_df$Correlation), ]
 
-cat("Strongest negative correlation:", as.character(most_negative$Variable), 
+cat("\nTask 5 - Correlation Results:\n")
+cat("Most strongly NEGATIVELY correlated:", as.character(most_negative$Variable),
     "(", round(most_negative$Correlation, 3), ")\n")
-cat("Strongest positive correlation:", as.character(most_positive$Variable), 
-    "(", round(most_positive$Correlation, 3), ")")
+cat("Most strongly POSITIVELY correlated:", as.character(most_positive$Variable),
+    "(", round(most_positive$Correlation, 3), ")\n")
+
 ```
+
+
+# Most strongly NEGATIVELY correlated: volatile_acidity ( -0,391 )
+
+# Most strongly POSITIVELY correlated: alcohol ( 0.476 )
+
+- **Quality Distribution**: Most wines are average (quality 5-6)
+- **Key Quality Drivers**:
+    - ↑ Alcohol content = ↑ Quality
+    - ↓ Volatile acidity = ↑ Quality
+
+- **Data Quality**: 14.9% density outliers suggest measurement issues
+- **Premium Segment**: Only 2.1% achieve top quality (8/10)
+
+
 
 ## 2.4 High-Quality Wine Subset
 
 ```{r wine-subset}
-#| label: wine-subset
-#| code-summary: "Create subset of high-quality wines (≥6)"
-
-# Create subset with quality ≥ 6
+# Task 6: Create subset with quality ≥ 6
 wine_high_quality <- wine_data %>%
-  filter(Quality >= 6)
+  filter(quality >= 6)
 
 # Summary statistics
-subset_summary <- data.frame(
-  Metric = c("Total wines in dataset", "High-quality wines (≥6)", 
-             "Percentage of high-quality", "Unique high-quality wines"),
+total_wines <- nrow(wine_data)
+high_quality_count <- nrow(wine_high_quality)
+percentage_high_quality <- round(high_quality_count / total_wines * 100, 1)
+
+cat("\nTask 6 - High Quality Wine Subset:\n")
+cat("Total wines in dataset:", total_wines, "\n")
+cat("Wines with quality ≥ 6:", high_quality_count, "\n")
+cat("Percentage of high-quality wines:", percentage_high_quality, "%\n")
+
+# Quality distribution in the subset
+quality_distribution <- wine_high_quality %>%
+  count(quality, name = "Count") %>%
+  mutate(Percentage = round(Count/sum(Count)*100, 1))
+
+cat("\nQuality distribution in high-quality subset:\n")
+print(quality_distribution)
+
+# Create summary table for high-quality wines
+summary_table <- data.frame(
+  Metric = c("Total wines", "High-quality wines (≥6)", "Percentage", "Unique wines"),
   Value = c(
-    nrow(wine_data),
-    nrow(wine_high_quality),
-    paste0(round(nrow(wine_high_quality)/nrow(wine_data)*100, 1), "%"),
+    total_wines,
+    high_quality_count,
+    paste0(percentage_high_quality, "%"),
     nrow(distinct(wine_high_quality))
   )
 )
 
-cat("High-Quality Wine Subset Summary:\n")
-subset_summary %>%
+summary_table %>%
   flextable() %>%
   bg(part = "header", bg = "#2C3E50") %>%
   color(part = "header", color = "white") %>%
   align(align = "center", part = "all") %>%
   autofit()
 
-# Quality distribution in the subset
-quality_dist <- wine_high_quality %>%
-  count(Quality, name = "Count") %>%
-  mutate(Percentage = round(Count/sum(Count)*100, 1))
-
-cat("\nQuality distribution in high-quality subset:\n")
-print(quality_dist)
-
-# Chemical profile of high-quality wines
-wine_high_quality %>%
-  summarise(across(where(is.numeric), mean)) %>%
-  select(-Quality) %>%
-  pivot_longer(everything(), names_to = "Chemical Property", values_to = "Average Value") %>%
-  flextable() %>%
-  colformat_num(j = "Average Value", digits = 3) %>%
-  bg(part = "header", bg = "#2C3E50") %>%
-  color(part = "header", color = "white") %>%
-  autofit()
 ```
 
 ---
 
-# Power BI Implementation
+# Key Findings
 
-## Assignment 1: Online Retail Analysis
-**Report Name**: `Week2_OnlineRetail_UKGifts_2009-2011_Isak_JZ.pbix`
+## Assignment 1: Online Retail II Analysis
 
-### Import Process:
-1. **Data Source**: Excel file with multiple sheets
-2. **Power Query Transformations**:
-   - Combined both yearly sheets
-   - Renamed variables: StockCode → Product_number, Customer ID → Customer_ID
-   - Set appropriate data types
-   - Created calculated columns for transaction types
+### **Dataset Characteristics**
+- **Scale**: 1,067,371 transactions across 43 countries over 2 years (2009-2011)
+- **Customer Base**: 5,942 unique customers with 4,312 unique products
+- **Geographic Distribution**: UK-dominated (85%+ of transactions) with significant international presence
 
-### Key Visualizations Created:
-- Dataset overview card (1M+ transactions, 43 countries)
-- Top 10 countries by transaction volume
-- Sales vs Cancellations analysis
-- Price distribution histogram
-- Missing values summary
+
+### **Data Quality Issues**
+- **Missing Values**: 243,007 rows (23%) contain missing data
+  - customer_id: 243,007 missing (likely guest checkouts)
+  - Description: 4,382 missing (product catalog gaps)
+- **Price Outliers**: 71,125 outliers detected, including negative prices (returns/refunds)
+
+### **Business Intelligence: ABC Analysis**
+Following the **Pareto Principle (80/20 Rule)**:
+- **Small Orders (≤£2.5)**: 59.83% of transactions → 20.44% of revenue
+- **Intermediate Orders (£2.5-5)**: 26.06% of transactions → 25.27% of revenue
+- **Large Orders (>£5)**: 14.11% of transactions → **54.28% of revenue**
+
+**Critical Insight**: Just 14% of orders generate over half the revenue, confirming classic wholesale behavior.
+
+### **Strategic Implications**
+1. **Revenue Concentration**: Focus retention efforts on large order customers (£14.15 avg value)
+2. **Operational Efficiency**: Optimize small order processing (high volume, low margin)
+3. **Growth Opportunity**: Upsell intermediate customers toward large order category
+
+---
 
 ## Assignment 2: Wine Quality Analysis
-**Report Name**: `Week2_WineQuality_RedWine_Analysis_Isak_JZ.pbix`
 
-### Import Process:
-1. **Data Source**: CSV with semicolon delimiter
-2. **Power Query Transformations**:
-   - Set delimiter to semicolon (;)
-   - Fixed comma decimal separator
-   - Renamed all variables to snake_case format
-   - Converted Quality to integer type
+### **Chemical Quality Drivers**
+**Strongest Correlations with Wine Quality:**
+- **Positive**: Alcohol content (+0.476) - Higher alcohol = Better quality
+- **Negative**: Volatile acidity (-0.391) - Lower acetic acid = Better quality
 
-### Key Visualizations Created:
-- Wine quality distribution
-- Correlation matrix heatmap
-- Outlier analysis by variable
-- High-quality wines (≥6) summary
+### **Data Distribution Insights**
+- **Quality Scale**: Most wines rated 5-6 (average), few premium wines (quality ≥8: only 2.1%)
+- **High-Quality Segment**: 855 wines (53.5%) achieve quality ≥6
+- **Outlier Variables**: Density (14.9%), residual sugar (9.7%), chlorides (9.2%)
 
----
-
-# Summary and Conclusions
-
-## Key Findings:
-
-### Online Retail Dataset:
-- **Scale**: 1.067M transactions across 43 countries
-- **Customer Base**: 5,942 unique customers, many wholesalers
-- **Missing Data**: 23% missing Customer_ID, requiring careful analysis
-- **Price Distribution**: Highly right-skewed with significant outliers
-- **Geographic Concentration**: UK dominates with most transactions
-
-### Wine Quality Dataset:
-- **Chemical Factors**: Alcohol content shows strongest positive correlation with quality
-- **Quality Distribution**: Most wines rated 5-6, few excellent wines (≥8)
-- **Outliers**: Density and sugar content show highest outlier ratios
-- **High-Quality Wines**: 855 samples (53.5%) rated ≥6 quality
-
-## Technical Implementation:
-- Successfully imported and cleaned both datasets in R and Power BI
-- Applied appropriate data transformations and type conversions
-- Created comprehensive exploratory data analysis
-- Generated professional visualizations for business insights
-
-This analysis demonstrates proficiency in data import, cleaning, transformation, and visualization using both R and Power BI platforms.
-```
-```
-
-
-
-```{r}
-library(tidyverse)
-library(scales)
-
-### Steg 1: Definiera brytpunkter från ABC-analysen
-# Enligt bilden: 70% av totalvärdet uppnås vid £65
-break_points <- c(0, 65, 1000, Inf)  # Anpassa efter din datadistribution
-
-### Steg 2: Kategorisera priser med dynamiska labels
-clean_data <- clean_data %>%
-  mutate(
-    price_bin = cut(Price,
-                    breaks = break_points,
-                    labels = c("Small", "Intermediate", "Large"),
-                    include.lowest = TRUE)
-  
-### Steg 3: Visualisera fördelning enligt din bild
-ggplot(clean_data, aes(x = Price, fill = price_bin)) +
-  geom_histogram(bins = 50, alpha = 0.8) +
-  geom_vline(xintercept = 65, linetype = "dashed", color = "darkred") +
-  scale_x_continuous(trans = log10_trans(),
-                     labels = dollar_format(prefix = "£")) +
-  annotate("text", x = 120, y = 30000, 
-           label = "70% av totalt värde\n£65+", color = "darkred") +
-  labs(title = "ABC-analys av Orderpriser",
-       subtitle = "Kategorier baserade på värdebidrag",
-       x = "Pris (£)", y = "Antal ordrar") +
-  theme_minimal()
-  )
-
-### Steg 4: Beräkna antal per kategori
-order_counts <- clean_data %>%
-  count(price_bin) %>%
-  mutate(
-    proportion = n / sum(n),
-    cumulative_value = sapply(price_bin, function(x) {
-      sum(clean_data$Price[clean_data$price_bin == x])
-    })
-  )
-
-### Steg 5: Professionell resultattabell
-order_counts %>%
-  mutate(
-    price_bin = fct_reorder(price_bin, -n),
-    `Värdeandel` = percent(cumulative_value / sum(cumulative_value))
-  ) %>%
-  select(Kategori = price_bin, 
-         `Antal ordrar` = n, 
-         `Proportion` = proportion, 
-         `Värdeandel`) %>%
-  flextable() %>%
-  colformat_num(columns = 2:4, suffix = c(" st", "%", "%")) %>%
-  set_header_labels(values = list(
-    Kategori = "ABC-kategori",
-    `Antal ordrar` = "Volym",
-    Proportion = "Andal ordrar",
-    `Värdeandel` = "Värdebidrag"
-  )) %>%
-  bg(j = "Värdeandel", bg = "#FF6B6B", part = "body")
-
-```
-
-library(naniar)
-gg_miss_var(retail_data_1)
-
-
-retail_data <- lapply(excel_sheets(path), read_excel, path=path) %>%
-  set_names() %>% #Använder bladnamnen som ID
-  map_dfr(
-
-  )
-
-
-my_workbook <- lapply(excel_sheets("data.xlsx"),
-                      read_excel,
-                      path = "data.xlsx")
-# Skapa en dataframe med alla blad
-combined_df <- excel_sheets(path) %>% 
-  set_names() %>%        # Använd bladnamn som ID
-  map_dfr(
-    ~ read_excel(
-      path = path,
-      sheet = .x,
-      col_types = c("numeric", "text", "date", "numeric")  # Anpassa enligt dina kolumner
-    ) %>%
-      # Ändra specifika variabelnamn
-      rename(
-        nytt_namn1 = gammalt_namn1,
-        produktkod = artikelnummer
-      ),
-    .id = "År"  # Lägg till bladnamn som kolumn (t.ex. årsangivelse)
-  ) %>%
-  # Eventuella ytterligare transformationer
-  mutate(
-    across(c(kolumn1, kolumn2), as.numeric)
-  )
+### **Wine Production Implications**
+1. **Alcohol Management**: Higher alcohol content correlates with perceived quality
+2. **Acidity Control**: Managing volatile acidity is crucial for quality improvement
+3. **Quality Distribution**: Natural bell curve with few exceptional wines
