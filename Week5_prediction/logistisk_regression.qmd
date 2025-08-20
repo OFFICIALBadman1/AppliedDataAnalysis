@@ -1,0 +1,204 @@
+
+
+```{r}
+
+# göra predikationer
+
+mdl_recendency <- glm(har_inträffat ~ tid_sen_senaste_köp, data = df, family = "biomial"
+)
+
+förklarande_data <- tibble(tid_sen_senaste_köp = seq(-1, 6, 0.25))
+
+
+prediktions_data <- explanatory_data %>%
+    mutate(
+        har_inträffat = predict(mdl_recendency, förklarande_data, type = "response")
+    )
+
+#viktiga att lägga trill type="response", för at få ut sannolikheter. 
+
+```
+
+
+# Addera punkt predikationer, i alltså geom_point
+#Punkterna hamnar där sannolkheten är och följer prediktionskurvan man fick från ggplot2
+```{r}
+# geom_point(data="prediktions_data", color="blue")
+
+```
+
+
+5. Getting the most likely outcome
+Du kan förenkla prediktionerna:
+
+Om sannolikheten < 0.5 → kunden kommer troligen inte churna.
+
+Om sannolikheten > 0.5 → kunden kommer troligen churna.
+
+Det görs enkelt genom att använda round() på sannolikheterna (avrunda till 0 eller 1).
+
+# 7. Odds ratios
+Ett annat sätt att uttrycka sannolikhet är genom odds:
+
+Sannolikheten / (1 - sannolikheten)
+
+Exempel: 25 % sannolikhet → 0.25 / 0.75 = 1/3 = "3 till 1 emot"
+
+Odds används t.ex. inom spel.
+
+```{r}
+#beräkna log odds ratio
+prediction_data <- förklarande_data %>%
+    mutate(
+        har_inträffat = predict(mdl_recencny, förklarande_data, type="response"),
+        mest_troligt = round(har_inträffat)
+        odds_ratio = har_inträffat / (1-har_inträffat),
+        log_odds_ratio = log(odds_ratio),
+        log_odds_ratio2 = predict(mdl_recencny, förklarande_data)
+
+
+    )
+```
+
+Flashcard 3
+Q: What are the four cells of the confusion matrix in logistic regression, and which functions in yardstick help you compute and plot it?
+A:
+
+True Negative (TN): Predicted 0, Actual 0
+
+False Positive (FP): Predicted 1, Actual 0
+
+False Negative (FN): Predicted 0, Actual 1
+
+True Positive (TP): Predicted 1, Actual 1
+
+```{r}
+
+
+library(yardstick)
+outcomes <- table(
+    round(fitted(mdl)),   dataset$response)
+    confusion <- conf_mat(outcomes)
+    autoplot(confusion)
+    summary(confusion, event_level = "second")
+
+```
+
+Du vill visualisera interaktionen mellan en kategorisk plan_type (2 nivåer) och numerisk användning på churn-sannolikheten. Vilken ggplot-strategi skulle du använda?
+
+```{r}
+ggplot(prediction_data, aes(usage, has_churned, color = has_churned > 0.5)) +
+  geom_point() +
+  facet_wrap(~ plan_type) +
+  scale_color_manual(values = c("steelblue","tomato"))
+
+```
+
+
+Du behöver förutsäga churn-risken och sedan kategorisera kunder i "låg", "medel" och "hög" risk (sannolikhetsgrupper). Beskriv stegen.
+
+```{r}
+# 1 Beräkna sannolikheterna
+test <- test_set %>%
+  mutate(.pred = predict(mdl, newdata = ., type = "response"))
+
+# 2. Bin till 3 olika kategorier
+test <- test %>%
+  mutate(risk = case_when(
+    .pred < 0.33 ~ "low",
+    .pred < 0.66 ~ "medium",
+    TRUE         ~ "high"
+  ))
+
+# Utvärdera distribution och noggrannhet per grupp.
+
+
+```
+
+glm(response ~ förklarande, )
+
+
+perdiktionsflödet
+
+förklarande_data <- expand_grid(
+  förklarande1 = några_vården,
+  förklarande2 = några värden
+)
+
+prediktions_data <- förklarande_data %>%
+  mutate(
+    has_churned = predict(mdl,explanatory_data,type=response)
+  )
+
+
+#Representera fyra utfallen för confusion matrisen, för responsaaiblen. 
+
+faktisk_response <- dataset$response
+predicted_response <- round(fitted(mdl))
+
+```{r}
+# Using churn, plot recency vs. length of relationship colored by churn status
+ggplot(churn, aes(x=time_since_last_purchase, y=time_since_first_purchase, color=has_churned)) +
+  # Make it a scatter plot, with transparency 0.5
+  geom_point(alpha=0.5) +
+  # Use a 2-color gradient split at 0.5
+  scale_color_gradient2(midpoint=0.5) +
+  # Use the black and white theme
+  theme_bw()
+
+```
+
+
+"""
+skapa confusion matrix
+
+# Get the actual responses from churn
+actual_response <- churn$has_churned
+
+# Get the predicted responses from the model
+predicted_response <- round(fitted(mdl_churn_vs_both_inter))
+
+# Get a table of these values
+outcomes <- table(predicted_response, actual_response)
+
+# Convert the table to a conf_mat object
+confusion <- conf_mat(outcomes)
+
+# See the result
+confusion
+"
+
+utfall: confusion
+                  actual_response
+predicted_response   0   1
+                 0 102  53
+                 1  98 147
+
+
+Hur visualerar vi dom fyra utfallen från responsvariabeln?
+
+Med hjälp av en confusionmatris:
+1. Först hämta dom faktiska utfallen från datamängden:
+actual_response <- dataset$response 
+
+# Samt dom predikeratde utfallen från modellen, avrundade för att ge nollor och ettor. 
+predikerat_response <- round(fitted(mdl) 
+
+2. Använd sedan tabellen för att få antalet för var och en av de fyra utfallen. 
+utfall <- table(predikerat_response , actual_response)
+
+3. Konvertera sedan till confiusion matrix:
+confusion <- conf_mat(outcomes)
+
+4. använd autoplot(confusion) #detta plottar en mosaic plot
+
+5. visa mätvärden som modellens nogrannhet, känslighet och specifcitet med hjav summary()
+summary(confusion, event_level = "second") 
+
+6. visualisering
+
+
+
+
+
+

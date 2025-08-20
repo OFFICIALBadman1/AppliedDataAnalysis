@@ -1,0 +1,159 @@
+---
+title: "Random Forest Imputation with Proximity in R"
+author: "Your Name"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+format: html
+execute:
+  echo: true
+  warning: false
+  error: false
+---
+
+# Introduction
+
+This document demonstrates a complete workflow for handling missing values in training data using Random Forest proximity-based imputation in R. We will cover:
+
+1. **Exploratory Data Analysis (EDA)** and custom initial imputation
+2. **Random Forest–based imputation** with the `missForest` package
+3. **Training a Random Forest** model on fully imputed data
+4. **Extracting and using the proximity matrix**
+5. **Scalability considerations** for large datasets
+
+```{r setup, message=FALSE}
+# Load required packages
+library(tidyverse)    # Data manipulation and visualization
+library(missForest)   # Proximity-based imputation using Random Forest
+library(randomForest) # Random Forest modeling and proximity extraction
+```
+
+# 1. Exploratory Data Analysis & Custom Initial Imputation
+
+Before jumping into automated imputation, it's best practice to inspect each variable and choose a sensible initial filling strategy.
+
+## 1.1 Inspect numeric distributions with dynamic bins
+
+```{r eda-numeric}
+# Replace 'YourNumericVar' with your column name
+x <- df$YourNumericVar
+# Automatic binwidth using Freedman-Diaconis rule
+data_n <- na.omit(x)
+binwidth <- 2 * IQR(data_n) / (length(data_n)^(1/3))
+# Plot histogram with dynamic binwidth
+ggplot(df, aes(x = YourNumericVar)) +
+  geom_histogram(binwidth = binwidth, na.rm = TRUE) +
+  ggtitle("Distribution of YourNumericVar with Freedman-Diaconis bins") +
+  theme_minimal()
+```
+
+**Decision point:**
+- If you'd rather specify a fixed number of bins, you can use Sturges' formula:
+```{r}
+n_bins <- nclass.Sturges(data_n)
+ggplot(df, aes(x = YourNumericVar)) +
+  geom_histogram(bins = n_bins, na.rm = TRUE)
+```
+
+## 1.2 Inspect and impute categorical variables
+
+```{r eda-categorical}
+# Count occurrences of each level
+df %>%
+  count(YourFactorVar) %>%
+  arrange(desc(n)) %>%
+  ggplot(aes(x = fct_reorder(YourFactorVar, n), y = n)) +
+  geom_col() + coord_flip() +
+  ggtitle("Frequency of Levels in YourFactorVar")
+```
+
+**Decision point:**
+- Use **group-wise mode** if there's a logical grouping (e.g., by Region)
+- Otherwise use **global mode**
+
+```{r initial-impute-categorical}
+# Function to compute mode
+get_mode <- function(x) {
+  ux <- unique(na.omit(x))
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Example: group-wise mode imputation
+df <- df %>%
+  group_by(Region) %>%
+  mutate(
+    YourFactorVar = replace_na(YourFactorVar, get_mode(YourFactorVar))
+  ) %>%
+  ungroup()
+
+# If any still missing, fill with global mode
+global_mode <- get_mode(df$YourFactorVar)
+df <- df %>%
+  mutate(
+    YourFactorVar = replace_na(YourFactorVar, global_mode)
+  )
+```
+
+# 2. Proximity-Based Imputation with `missForest`
+
+Now that we have sensible initial values, we use `missForest` for **iterative random forest–based** imputation.
+
+```{r missforest-impute}
+set.seed(123)
+# maxiter: maximum number of iterations (convergence typically in ~6-7 rounds)
+# ntree: number of trees per iteration
+impute_out <- missForest(
+  df,
+  maxiter = 7,
+  ntree   = 100,
+  variablewise = FALSE,  # Impute all variables in each iteration
+  verbose = TRUE         # Print progress
+)
+
+# Extract the fully imputed data frame
+df_imputed <- impute_out$ximp
+```
+
+# 3. Train Random Forest on Imputed Data
+
+With no missing values left, we can fit a Random Forest model for prediction or classification.
+
+```{r train-rf}
+set.seed(123)
+# Replace 'TargetVar' with your dependent variable name
+rf_model <- randomForest(
+  TargetVar ~ ., 
+  data       = df_imputed,
+  ntree      = 500,
+  importance = TRUE,
+  proximity  = TRUE     # Request proximity matrix
+)
+
+print(rf_model)
+varImpPlot(rf_model)
+```
+
+# 4. Extract and Use the Proximity Matrix
+
+The proximity matrix measures similarity between observations based on leaf co-occurrence.
+
+```{r extract-proximity}
+# Proximity matrix is stored in the model object
+prox_mat <- rf_model$proximity
+
+# Convert proximity to distance: distance = 1 - proximity
+dist_mat <- 1 - prox_mat
+
+# Example: visualize a subset as a heatmap
+heatmap(as.matrix(dist_mat[1:100, 1:100]), symm = TRUE,
+        main = "Proximity-based Distance Heatmap (First 100 obs)")
+```
+
+# 5. Scalability Considerations
+
+- **Avoid full n×n matrix** for very large n; consider extracting only k-nearest neighbors via RF leaf-index.
+- **Parallelize** forest training: e.g., use `ranger` with `num.threads` or `missForest(..., parallelize='variables')`.
+- **Partition/chunk** data for distributed imputation (e.g., Spark MLlib, H2O).
+- **Hybrid strategy:** initial simple imputation for low-impact cols, `missForest` for critical ones.
+
+---
+
+*End of document.*

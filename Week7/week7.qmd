@@ -1,0 +1,286 @@
+---
+
+title: "Week 7 Examination Assignments"
+author: "<Your Name>"
+date: "`r Sys.Date()`"
+format:
+html:
+toc: true
+toc-depth: 2
+------------
+
+# Assignment 1 – K-Nearest Neighbors for Online Shoppers Intention
+
+In this section, we build and tune a KNN classifier to predict whether an online shopping session ends with a purchase (`Revenue`) using only the numerical features.
+
+```{r setup, include=FALSE}
+# Load required libraries
+library(readr)       # data import
+library(dplyr)       # data manipulation
+library(janitor)     # clean_names
+library(caret)       # partitioning & confusion matrix
+library(FNN)         # KNN algorithm
+library(ggplot2)     # plotting
+```
+
+## 1. Data Import and Preprocessing
+
+```{r import-prep}
+# Import dataset and keep numerical + Revenue
+shop <- read_csv("online_shoppers_intention.csv") %>%
+  select_if(~ is.numeric(.) | names(.) == "Revenue") %>%
+  # Rename Revenue for clarity
+  mutate(Revenue = recode(Revenue, "TRUE" = "Shopping", "FALSE" = "No_Shopping")) %>%
+  mutate(Revenue = factor(Revenue, levels = c("No_Shopping","Shopping"), ordered = TRUE)) %>%
+  clean_names()  # make variable names lowercase & snake_case
+
+# Standardize predictors (excluding Revenue)
+shop_std <- shop %>%
+  mutate(across(-revenue, scale))
+```
+
+## 2. Train/Test Partition
+
+```{r partition}
+set.seed(123)
+idx <- createDataPartition(shop_std$revenue, p = 0.7, list = FALSE)
+train <- shop_std[idx, ]
+test  <- shop_std[-idx, ]
+
+# Extract outcomes and predictors
+train_x <- train %>% select(-revenue)
+train_y <- train$revenue
+test_x  <- test  %>% select(-revenue)
+test_y  <- test$revenue
+```
+
+## 3. Tune K and Evaluate
+
+```{r tune-knn}
+# Initialize storage
+max_k <- 50
+acc  <- numeric(max_k)
+kappa <- numeric(max_k)
+
+# Loop over odd K values only
+for (k in seq(1, max_k, by = 2)) {
+  pred <- knn(train = train_x, test = test_x, cl = train_y, k = k)
+  cm <- confusionMatrix(pred, test_y)
+  acc[ (k+1)/2 ]   <- cm$overall["Accuracy"]
+  kappa[(k+1)/2 ]  <- cm$overall["Kappa"]
+}
+
+# Prepare results for plotting
+k_values <- seq(1, max_k, by = 2)
+res_df <- data.frame(k = k_values,
+                     Accuracy = acc,
+                     Kappa = kappa)
+```
+
+```{r plot-knn-results}
+# Plot accuracy and kappa vs K
+ggplot(res_df, aes(x = k)) +
+  geom_line(aes(y = Accuracy), color = "steelblue") +
+  geom_point(aes(y = Accuracy), color = "steelblue") +
+  geom_line(aes(y = Kappa), color = "darkorange") +
+  geom_point(aes(y = Kappa), color = "darkorange") +
+  labs(y = "Metric value", x = "Number of neighbors (K)",
+       title = "KNN performance: Accuracy (blue) & Kappa (orange)") +
+  theme_minimal()
+```
+
+Based on the plot, choose the **K** with highest accuracy and reasonable kappa. Then report the final confusion matrix.
+
+
+
+
+
+
+
+
+
+# Assignment 2 – CART Regression Tree for Seoul Bike Rentals
+
+In this section, we build and prune a regression tree to predict `Rented Bike Count` from numerical features.
+
+```{r setup-bike, include=FALSE}
+library(readxl)       # Excel import
+library(dplyr)        # data manipulation
+library(janitor)      # clean_names
+library(caret)        # partition
+library(rpart)        # CART model
+library(rpart.plot)   # tree plotting
+library(ggplot2)      # plotting
+```
+
+## 1. Data Import and Selection
+
+```{r bike-import}
+bike <- read_xlsx("SeoulBikeData.xlsx") %>%
+  clean_names() %>%
+  # Select only numeric predictors + response
+  select(rented_bike_count, hour, temperature, humidity,
+         wind_speed, visibility, dew_point_temperature,
+         solar_radiation, rainfall, snowfall)
+```
+
+## 2. Exploratory Correlation
+
+```{r bike-corr}
+# Correlation matrix plot
+library(GGally)
+ggcorr(bike, label = TRUE, name = "Pearson r")
+```
+
+Comment on which predictors have strongest correlation with rented bike count.
+
+## 3. Train/Test Split
+
+```{r bike-partition}
+set.seed(345)
+idx_bike <- createDataPartition(bike$rented_bike_count, p = 0.7, list = FALSE)
+bike_train <- bike[idx_bike, ]
+bike_test  <- bike[-idx_bike, ]
+```
+
+## 4. Fit & Prune Tree
+
+```{r bike-tree}
+# Fit full tree
+tree_full <- rpart(rented_bike_count ~ ., data = bike_train,
+                   control = rpart.control(cp = 0.01))
+# Prune to <= 7 leaves: find cp associated
+opt_idx <- which.min(tree_full$cptable[ , "xerror"])
+opt_cp  <- tree_full$cptable[opt_idx, "CP"]
+# Prune
+tree_pruned <- prune(tree_full, cp = opt_cp)
+
+# Visualize
+rpart.plot(tree_pruned, roundint = FALSE)
+```
+
+Discuss main splits and most important variables.
+
+## 5. Prediction & Plot
+
+```{r bike-pred-plot}
+# Predict on test
+pred_bike <- predict(tree_pruned, newdata = bike_test)
+# Compare via scatter
+ggplot(data.frame(actual = bike_test$rented_bike_count,
+                  predicted = pred_bike),
+       aes(x = actual, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(linetype = "dashed") +
+  labs(x = "Actual Count", y = "Predicted Count",
+       title = "Regression Tree: Actual vs Predicted") +
+  theme_minimal()
+```
+
+## 6. CP Tuning
+
+```{r bike-cp-tune}
+# Loop over candidate cp values\cpts <- seq(0.005, 0.05, by = 0.005)
+rmse <- sapply(cpts, function(cp) {
+  tr <- prune(tree_full, cp = cp)
+  pred <- predict(tr, bike_test)
+  sqrt(mean((pred - bike_test$rented_bike_count)^2))
+})
+# Plot RMSE vs cp
+ggplot(data.frame(cp = cpts, RMSE = rmse), aes(cp, RMSE)) +
+  geom_line() + geom_point() +
+  labs(title = "CP Tuning: RMSE vs Complexity Parameter") +
+  theme_minimal()
+```
+
+Select cp minimizing RMSE and report tree size.
+
+# Assignment 3 – Random Forest for Seoul Bike Rentals
+
+Here we build a random forest using all features (including categorical) except date.
+
+```{r setup-rf, include=FALSE}
+library(readxl)
+library(dplyr)
+library(janitor)
+library(caret)
+library(randomForest)
+library(ggplot2)
+```
+
+## 1. Data Import & Prep
+
+```{r rf-import}
+bike_all <- read_xlsx("SeoulBikeData.xlsx") %>%
+  clean_names() %>%
+  # Exclude date and keep all others
+  select(-date)
+# Convert categorical to factors
+bike_all <- bike_all %>%
+  mutate(across(c(seasons, holiday, functioning_day), as.factor))
+```
+
+## 2. Partition
+
+```{r rf-partition}
+set.seed(456)
+idx_all <- createDataPartition(bike_all$rented_bike_count, p = 0.7, list = FALSE)
+train_all <- bike_all[idx_all, ]
+test_all  <- bike_all[-idx_all, ]
+```
+
+## 3. Fit Random Forest
+
+```{r rf-fit}
+set.seed(789)
+rf_model <- randomForest(rented_bike_count ~ ., data = train_all,
+                         importance = TRUE)
+print(rf_model)
+```
+
+Check `% Var explained` for variance explained.
+
+## 4. MSE vs. Number of Trees
+
+```{r rf-mse}
+mse_df <- data.frame(
+  Trees = 1:rf_model$ntree,
+  MSE   = rf_model$mse
+)
+
+ggplot(mse_df, aes(Trees, MSE)) +
+  geom_line() +
+  labs(title = "RF: MSE vs Number of Trees") +
+  theme_minimal()
+```
+
+## 5. Variable Importance
+
+```{r rf-varimp}
+varImpPlot(rf_model, type = 1, main = "Mean Decrease in Accuracy")
+varImpPlot(rf_model, type = 2, main = "Mean Decrease in Node Impurity")
+```
+
+Comment on the most important predictors.
+
+## 6. Predict & Compare
+
+```{r rf-predict}
+pred_rf <- predict(rf_model, newdata = test_all)
+
+ggplot(data.frame(actual = test_all$rented_bike_count,
+                  predicted = pred_rf),
+       aes(x = actual, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(linetype = "dashed") +
+  labs(title = "Random Forest: Actual vs Predicted") +
+  theme_minimal()
+```
+
+## 7. Hyperparameter Exploration (Optional)
+
+Briefly try different `mtry` and `nodesize` settings to see if performance improves.
+
+---
+
+*End of examination assignments.*

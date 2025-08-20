@@ -1,0 +1,8 @@
+
+
+Beskrivande statistik
+```{r}
+library(dplyr)
+library()
+
+```

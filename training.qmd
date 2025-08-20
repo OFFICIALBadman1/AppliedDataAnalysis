@@ -1,0 +1,29 @@
+
+
+
+```{r}
+
+# träna modell på data från januari och evaluera på data rån februari. 
+
+#ranger paketet ska användas
+# num.trees (default är 500) , används minst 200. 
+#mtry: antalö variablar man försöker testa vid varje nod. default: roten av totala antalet variablar. 
+# rtar in formula och träningsdata.
+# om utfallsvariablern är numerisk kommer renger funktionen automatiskt göra regression istället för classification. 
+
+
+#med respect.unordered.factors talar om huyr man ska behandla kategosiak variablar. (ex behandla i ordningsfökjd")
+
+# går fortare att ha till orders på kategoriska. Går fortare än at konvertera kategoriska variablar till indikator variablkar, när kategoriska variablar har mycket stort antal av möjliga värden. 
+model <- ranger(fmla, bikesJan, num.trees=500, respect.unordered.factors = "order") 
+
+# skriv ut:
+model #kommer printa ut deisplayen. R-sq och MSE. Vid möjligt ska man ändå evaluera modellen direkt på testdata. 
+
+
+#åredolera ,ed ranger funktionen
+bikesFeb$pred <- predict(model,bikesFeb)$prediktions
+
+
+```
+

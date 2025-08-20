@@ -1,0 +1,276 @@
+---
+title: "Week 6 Examination Assignment: Logistic Regression on Bank Loan Data"
+author: "Isak Jonsson Zachari"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: false
+editor: visual
+---
+
+```{r setup}
+
+
+library(tidyverse)
+
+
+
+# Read and clean data using pipes as much as possible
+bankloan_raw <- read_csv("bankloan.csv")
+
+glimpse(bankloan_raw)
+
+#Antalet missing values
+sum(is.na(bankloan_raw))
+
+#0 missing values
+
+
+#räkna antalet dubletter:
+sum(duplicated(bankloan_raw))
+# 0 st där också
+
+summary(bankloan_raw)
+
+
+
+
+```
+
+# Introduction
+
+In this report, I’ll walk through a logistic regression analysis to predict loan approvals (`Personal.Loan`) using the `bankloan.csv` dataset. I’ve structured my work to match the examination requirements and used pipes throughout to keep it tidy and human-readable.
+
+# 1. Data Cleansing
+
+First, I check how many rows and columns I’m working with, and confirm that NAs are gone.
+
+```{r}
+# Rename columns to descriptive names and convert types
+bankloan_clean <-
+  bankloan_raw %>%
+  rename(
+    customer_ID = ID,
+    age_years = Age,
+    years_experience = Experience,
+    annual_income = Income,
+    zip_code = ZIP.Code,
+    family_size = Family,
+    avgCC_transactions = CCAvg,
+    education_level = Education,
+    mortgage_amount = Mortgage,
+    loan_approved = Personal.Loan,
+    securities_account = Securities.Account,
+    cd_account = CD.Account,
+    online = Online,
+    credit_card = CreditCard
+  ) 
+ 
+
+# Confirm cleaned data structure
+bankloan_clean %>% glimpse()
+
+library(dplyr)
+
+hej <- bankloan_clean %>% 
+    summarise_all(~(n_distinct(.)))
+
+print(hej, width=Inf)
+
+```
+
+# Nu kommer jag att ändra datatyperna då alla är i dbl
+```{r}
+bankloan_clean <- bankloan_clean %>% 
+  mutate(
+    # binära → faktor
+    across(c(loan_approved,
+             securities_account,
+             cd_account,
+             online,
+             credit_card),
+           ~ factor(.x, levels = c(0, 1), labels = c("No", "Yes"))),
+    
+    # ordnad faktor för utbildning
+    education_level = ordered(education_level,
+                              levels = c(1, 2, 3),
+                              labels = c("Undergrad", "Graduate", "Advanced")),
+
+    # familjestorlek som faktor
+    family_size = factor(family_size),
+    customer_ID = as.integer(customer_ID),
+    age_years = as.integer(age_years)
+  )
+
+glimpse(bankloan_clean)
+
+```
+
+# 2. Descriptive Analysis
+
+I start by exploring the distribution of the target and basic summaries of predictors.
+
+## 2.1 Target Class Balance
+
+```{r class-distribution}
+bankloan_clean %>%
+  count(Personal.Loan) %>%
+  mutate(prop = n / sum(n))
+```
+
+## 2.2 Numeric Summaries
+
+```{r summary-numerics}
+bankloan_clean %>%
+  select_if(is.numeric) %>%
+  summary()
+```
+
+# 3. Train-Test Split (70/30)
+
+I split the data, keeping the class balance consistent using `caret`’s `createDataPartition()`.
+
+```{r split-data}
+set.seed(123)
+split_idx <- createDataPartition(bankloan_clean$Personal.Loan, p = .7, list = FALSE)
+
+train_data <- bankloan_clean %>% slice(split_idx)
+test_data  <- bankloan_clean %>% slice(-split_idx)
+
+# Check sizes and balance
+train_data %>% count(Personal.Loan) %>% mutate(prop = n/sum(n))
+
+test_data %>% count(Personal.Loan) %>% mutate(prop = n/sum(n))
+```
+
+# 4. Building the Initial Model
+
+I build a full logistic regression excluding identifiers (`ID`, `ZIP.Code`).
+
+```{r fit-initial-model}
+initial_model <-
+  train_data %>%
+  glm(Personal.Loan ~ . - ID - ZIP.Code,
+      data = ., family = binomial)
+
+summary(initial_model)
+```
+
+# 5. Stepwise Model Selection
+
+To refine the model, I use stepwise selection based on AIC.
+
+```{r stepwise-selection}
+final_model <-
+  initial_model %>%
+  step(direction = "both", trace = FALSE)
+
+summary(final_model)
+```
+
+# 6. Model Diagnostics
+
+I check residuals, leverage, and influence plots to make sure my model behaves well.
+
+```{r diagnostics, fig.height=6, fig.width=6}
+par(mfrow = c(2,2))
+plot(final_model)
+```
+
+# 7. Interpreting Odds Ratios
+
+Here I compute and interpret the odds ratios for each predictor.
+
+```{r odds-ratios}
+odds_table <-
+  final_model %>%
+  broom::tidy() %>%
+  mutate(
+    OR  = exp(estimate),
+    `OR-1` = OR - 1
+  )
+
+odds_table
+```
+
+# 8. Evaluating on Test Set (Cutoff = 0.5)
+
+I generate predictions and the confusion matrix at the default 0.5 cutoff.
+
+```{r confusion-50}
+pred_probs <- final_model %>% predict(newdata = test_data, type = "response")
+
+test_data %>%
+  mutate(
+    pred_class = if_else(pred_probs > .5, 1, 0)
+  ) %>%
+  select(Personal.Loan, pred_class) %>%
+  yardstick::conf_mat(truth = Personal.Loan, estimate = pred_class)
+```
+
+# 9. ROC Curve and AUC
+
+I plot the ROC and calculate AUC to see overall performance.
+
+```{r roc-auc}
+roc_obj <- roc(test_data$Personal.Loan, pred_probs)
+auc_val <- auc(roc_obj)
+plot(roc_obj, legacy.axes = TRUE,
+     main = glue::glue("ROC Curve (AUC = {round(auc_val, 3)})"))
+```
+
+# 10. Optimal Cutoff via Youden’s J
+
+I find the threshold that maximizes sensitivity + specificity - 1.
+
+```{r find-cutoff}
+best_coords <- coords(roc_obj, "best", ret = c("threshold","sensitivity","specificity"), best.method = "youden")
+best_coords
+```
+
+# 11. Confusion Matrix at Optimal Cutoff
+
+Applying the chosen threshold:
+
+```{r confusion-best}
+opt_thresh <- best_coords["threshold"]
+
+test_data %>%
+  mutate(
+    pred_class = if_else(pred_probs > opt_thresh, 1, 0)
+  ) %>%
+  select(Personal.Loan, pred_class) %>%
+  yardstick::conf_mat(truth = Personal.Loan, estimate = pred_class)
+```
+
+# Task 2: Decisions for 15 New Applicants
+
+Finally, I apply my final_model to 15 new customers and decide approvals based on `opt_thresh`.
+
+```{r new-applicants}
+new_customers <- tibble(
+  ID = 1:15,
+  Age = c(38,58,39,64,33,24,46,52,44,56,53,60,46,43,61),
+  Experience = c(12,32,14,37,6,-2,20,28,19,30,29,35,22,19,35),
+  Income = c(48,73,155,138,78,150,91,178,74,111,118,48,125,83,74),
+  ZIP.Code = c(95617,94523,94577,94709,90250,94720,92521,92647,90041,93106,94066,94538,94536,92691,91320),
+  Family = c(4,2,2,2,4,2,4,3,4,4,2,3,2,4,2),
+  CCAvg = c(0.2,0.7,3.9,2.8,2.0,2.0,2.6,5.4,1.9,0.3,0.3,1.5,4.7,2.0,0.7),
+  Education = c(3,2,1,2,2,1,3,3,3,1,1,1,3,3,2),
+  Mortgage = c(0,0,0,0,119,0,0,147,0,372,0,0,0,0,0),
+  Securities.Account = c(0,0,0,0,1,0,0,0,0,1,0,0,0,0,0),
+  CD.Account = c(0,0,0,0,0,0,0,0,0,1,0,0,0,0,0),
+  Online = c(1,1,1,1,1,1,0,1,0,1,1,1,1,1,1),
+  CreditCard = c(0,1,0,0,0,0,0,0,0,0,0,0,0,0,1)
+) %>%
+  mutate(
+    prob = predict(final_model, newdata = ., type = "response"),
+    Approved = if_else(prob > opt_thresh, "Yes", "No")
+  )
+
+new_customers %>% select(ID, prob, Approved)
+```
+
+*I’ve emphasized pipe usage for readability and added a personal narrative. Let me know if you’d like even more detailed commentary or adjustments!*

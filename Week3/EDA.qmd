@@ -1,0 +1,334 @@
+---
+title: "Week 3 training assignment" 
+author: "Your Name"
+date: "2025-03-16"
+format: 
+  html:
+    toc: true                # Table of Contents
+    code-fold: true          # Collapse code chunks
+    code-tools: true         # Add code copy buttons
+    theme: cosmo             # Clean theme
+    css: styles.css          # Optional custom CSS
+---
+
+
+```{r}
+pkgs <- c("readr", "tidyverse", "dlookr", "flextable", "tinytex",
+"complexlm", "corrplot","GGally", "robust", "hexbin")
+for (i in pkgs){ 
+  if(! i %in% installed.packages()){
+    install.packages(i, dependencies = TRUE)}
+  require(i)
+}
+
+
+```
+
+```{r}
+# Ladda nödvändiga paket
+library(ggplot2)
+
+# Exempeldata
+set.seed(123)
+data <- data.frame(x = rnorm(10000))
+
+# Beräkna IQR och antal observationer
+IQR_value <- IQR(data$x)
+n <- nrow(data)
+
+# Beräkna binwidth enligt Freedman-Diaconis-regeln
+binwidth_fd <- 2 * IQR_value / (n^(1/3))
+print(binwidth_fd)
+
+# Skapa histogram med ggplot2
+ggplot(data, aes(x = x)) +
+  geom_histogram(binwidth = binwidth_fd, fill = "lightblue", color = "black") +
+  labs(title = "Histogram med Freedman-Diaconis binwidth",
+       x = "Värde",
+       y = "Frekvens")
+
+
+
+```
+
+Boxplots:Numeriska vairablar
+
+```{r}
+#Visa med exempelvis 
+
+ggplot(data, aes(x=as.factor(variabel), y=numeriska))+
+  geom_boxplot()
+
+
+
+# Create dataset of 2007 data
+gap2007 <- filter(gapminder, year == 2007)
+
+# Compute groupwise mean and median lifeExp
+gap2007 %>%
+  group_by(continent) %>%
+  summarize(mean(lifeExp),
+            median(lifeExp))
+
+# Generate box plots of lifeExp for each continent
+gap2007 %>%
+  ggplot(aes(x = continent, y = lifeExp)) +
+  geom_boxplot()
+
+```
+
+
+```{r}
+library(readr)
+
+df <- read_delim("Week3/garments_worker_productivity.csv", delim=",")
+head(df) 
+str(df)
+
+unique(df$department) #3 s  t olika departments
+unique(df$quarter)
+unique(df$team)
+
+
+```
+
+
+```{r}
+library(tidyverse)
+#Se till det är korrekt datatyp
+df1 <- df %>%
+  mutate(date=as.Date(date,format = "%m/%d/%Y"),
+      quarter = as.factor(quarter),
+      department = as.factor(department),
+      day = as.factor(day),
+      team = as.integer(team),
+      targeted_productivity = as.numeric(targeted_productivity),
+      smv = as.numeric(smv), 
+      wip = as.numeric(wip),
+      over_time = as.numeric(over_time),
+      incentive = as.numeric(incentive),
+      idle_time = as.numeric(idle_time),
+      idle_men = as.integer(idle_men),
+      no_of_style_change = as.numeric(no_of_style_change),
+      no_of_workers = as.numeric(no_of_workers),
+      actual_productivity = as.numeric(actual_productivity) 
+)
+
+
+str(df1)
+
+
+```
+
+```{r}
+library(dlookr)
+library(flextable)
+
+diagnose(df1) %>%
+  flextable()
+
+#wip har 42.27 % missing values
+
+
+
+
+```
+
+Analyserar wip (work in progress)
+```{r}
+
+#datatyp odh distrubution
+str(df1$wip)          # Bör vara num eller int
+summary(df1$wip)      # Snabb statistik
+hist(df1$wip)         # Visuell kontroll
+
+
+#missing values
+sum(is.na(df1$wip))                # Antal NA
+mean(is.na(df1$wip)) * 100         # Andel i %
+df1 %>% 
+  filter(is.na(wip)) %>% 
+    head()  # Exempel på rader där wip saknas
+
+
+
+#Vilka team eller dagar saknar Wip?
+df1 %>%
+  filter(is.na(wip)) %>%
+  count(team, sort = TRUE)  # eller by day/department
+
+
+```
+
+Mer analys om wip
+```{r}
+unique(df1$department)
+df1 %>% count(department) #DEPAREMENT HAR mellanslag, finns 2 st "finishing" ett med "finishing "
+
+#Lösning: Trimmar bort mellanslag
+library(stringr)
+
+df1 <- df1 %>%
+  mutate(department = str_trim(department))
+df1 %>% count(department)
+
+
+
+df1 %>%
+  group_by(department) %>%
+  summarise(
+    n = n(),
+    n_missing_wip = sum(is.na(wip)),
+    n_with_wip = sum(!is.na(wip)),
+    median_wip = ifelse(n_with_wip > 0, median(wip, na.rm = TRUE), NA),
+    max_wip = ifelse(n_with_wip > 0, max(wip, na.rm = TRUE), NA),
+    .groups = "drop"
+  )
+
+
+### Alla wip värden i "finishing är na" 
+
+
+df1 <- df1 %>%
+  mutate(
+    wip = ifelse(department == "finishing", NA, wip),
+    wip_applicable = department != "finishing"
+  )
+
+
+
+df1 %>%
+  ggplot(aes(wip)) +
+  geom_histogram()
+
+
+
+
+```
+
+```{r}
+df1 %>%
+  arrange(desc(wip)) %>%
+  select(date, department, team, wip, over_time, no_of_workers, smv) %>%
+  head(10)
+
+
+
+
+
+
+```
+
+###ALLA 10 högsta wip-vöräden inträffar samma datum 2015-02-02 --> Avdelning = "sweing"
+#Dessa har:
+
+Jättehög wip (upp till 23 122!)
+
+Hög over_time (ofta 6 000–7 000 min)
+
+Högt antal arbetare (~55–59 st)
+
+Liknande SMV (Standard Minute Value) ≈ 22.5
+
+Kanske är detta ett reaktionsmoment efter en flashals eller ett planerat stopp? 
+
+Lösning: Det verkar vara en väldigt speciell dag! 
+Jag flaggar dagen som "massiv produktion"
+
+
+```{r}
+df1 <- df1 %>%
+  mutate(big_wip_day = ifelse(date == as.Date("2015-02-02"), TRUE, FALSE))
+
+df1 %>%
+  filter(date == as.Date("2015-02-02")) %>%
+  select(team, wip, actual_productivity, over_time) %>%
+  arrange(desc(wip))
+
+
+df1 %>%
+  filter(over_time > 6000) %>%
+  count(date, sort = TRUE)
+
+# Slutsats: Team 7 och 8 sticker ut: mycket WIP men väldigt låg produktivitet (0.295, 0.261).
+
+# 59 dagar så är övertiden > 6000 
+# 2015-01-22: 18 team!
+
+# 2015-01-03 till 2015-01-11: många dagar i rad med 10–13 team över 6000.
+
+
+
+```
+
+
+```{r}
+df1 <- df1 %>%
+  mutate(
+    high_overtime = over_time > 6000,
+    extreme_wip = wip > 10000
+  )
+
+df1 %>%
+  filter(high_overtime == TRUE) %>%
+  summarise(
+    mean_prod = mean(actual_productivity, na.rm = TRUE),
+    median_prod = median(actual_productivity, na.rm = TRUE)
+  )
+
+
+ggplot(df1, aes(x = high_overtime, y = actual_productivity)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Produktivitet beroende på övertid",
+       x = "Hög övertid (>6000 min)",
+       y = "Produktivitet") +
+  theme_minimal()
+
+
+upper <- quantile(df1$wip, 0.95, na.rm = TRUE)
+
+df1 <- df1 %>%
+  mutate(wip_winsor = ifelse(wip > upper, upper, wip))
+
+
+ggplot(df1, aes(log1p(wip))) +
+  geom_histogram(binwidth = 0.2, fill = "lightblue", color = "black") +
+  labs(title = "Histogram av log(WIP)", x = "log(WIP + 1)", y = "Frekvens")
+
+
+```
+
+```{r}
+library(ggplot2)
+
+# Beräkna IQR och antal observationer
+IQR_value <- IQR(df1$wip)
+n <- nrow(df1)
+
+# Beräkna binwidth enligt Freedman-Diaconis-regeln
+binwidth_fd <- 2 * IQR_value / (n^(1/3))
+print(binwidth_fd)
+
+# Skapa histogram med ggplot2
+ggplot(df1, aes(log(wip))) +
+  geom_histogram(binwidth = binwidth_fd, fill = "lightblue", color = "black") +
+  labs(title = "Histogram med Freedman-Diaconis binwidth",
+       x = "Värde",
+       y = "Frekvens")
+
+
+
+```
+
+
+```{r}
+model <- lm(actual_productivity ~ log1p(wip) + over_time + smv + no_of_workers + high_overtime, data = df1)
+summary(model)
+
+ggplot(df1, aes(x = log1p(wip), y = actual_productivity)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Samband mellan log(WIP) och produktivitet")
+
+
+```

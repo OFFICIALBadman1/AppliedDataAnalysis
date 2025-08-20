@@ -1,0 +1,106 @@
+---
+title: "Handling Missing Predictors in New Samples with Random Forest"
+format: html
+---
+
+# Introduction
+
+This Quarto document shows how to classify new samples with missing predictor values (e.g., `BlockedArteries`) using a Random Forest in R. It reads training data and new sample(s) from CSV/Excel files, simulates each possible value for missing features, and selects the scenario with the strongest vote support.
+
+# Parameters
+
+```yaml
+params:
+  train_file: "path/to/train_data.csv"     # Path to training data file (CSV or Excel)
+  new_file:   "path/to/new_samples.csv"    # Path to new observations file
+  target_col: "HeartDisease"               # Name of response column in train data
+  missing_col: "BlockedArteries"           # Name of predictor column with missing values in new data
+  ntree:      100                           # Number of trees in Random Forest
+```
+
+# Setup
+
+```{r setup}
+# Load required libraries
+library(randomForest)
+library(readr)
+library(readxl)
+set.seed(123)
+```
+
+# Load Data
+
+```{r load-data}
+# Helper to read CSV or Excel
+read_data <- function(path) {
+  ext <- tools::file_ext(path)
+  if (ext %in% c("xls", "xlsx")) read_excel(path) else read_csv(path)
+}
+
+# Read training and new sample data
+train_data <- read_data(params$train_file)
+new_data   <- read_data(params$new_file)
+
+# Ensure target is factor
+train_data[[params$target_col]] <-
+  as.factor(train_data[[params$target_col]])
+```
+
+# Train Random Forest Model
+
+```{r train-model}
+# Build formula: target ~ . (all other columns)
+predictors <- setdiff(names(train_data), params$target_col)
+formula_rf <- as.formula(paste(params$target_col, "~", paste(predictors, collapse = "+")))
+
+# Train model
+rf_model <- randomForest(
+  formula_rf,
+  data = train_data,
+  ntree = params$ntree,
+  importance = TRUE
+)
+```
+
+# Handle New Samples
+
+<!-- This loop processes every row in new_data, so it supports any number of new samples (e.g., 100+ rows from a 70/30 split or each test fold in cross-validation). Simply point `new_file` to your test set and the code will iterate through all observations. -->
+
+```{r handle-missing}
+# Identify levels of the missing predictor from training data
+levels_missing <- unique(train_data[[params$missing_col]])
+
+# Process each new observation
+results <- lapply(seq_len(nrow(new_data)), function(i) {
+  obs <- new_data[i, , drop = FALSE]
+  if (!is.na(obs[[params$missing_col]])) {
+    # No missing: directly predict
+    pred <- predict(rf_model, obs)
+    return(list(row = i, imputed = NA, prediction = as.character(pred)))
+  }
+  # Simulate possible values
+  sims <- lapply(levels_missing, function(val) {
+    obs2 <- obs
+    obs2[[params$missing_col]] <- factor(val, levels = levels_missing)
+    obs2
+  })
+  names(sims) <- levels_missing
+  # Get vote proportions for each simulation
+  votes <- sapply(sims, function(x) predict(rf_model, x, type = "vote")[1, ])
+  vote_df <- as.data.frame(t(votes))
+  # Determine best simulation: highest max vote
+  best_val <- rownames(vote_df)[apply(vote_df, 1, max) == max(vote_df)][1]
+  # Final prediction using best value
+  obs_final <- sims[[best_val]]
+  final_pred <- predict(rf_model, obs_final)
+  list(row = i, imputed = best_val, prediction = as.character(final_pred))
+})
+
+# Combine results
+results_df <- do.call(rbind, lapply(results, as.data.frame))
+results_df
+```
+
+# Conclusion
+
+This template reads data files, trains a Random Forest, and handles missing predictor values in new samples by simulating all possible factor levels and selecting the one with strongest vote support.

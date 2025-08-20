@@ -1,0 +1,377 @@
+---
+title: "Week 8 Training Assignment: Advanced PCA & K-Means Analysis"
+author: "Your Name"
+date: "2025-08-19"
+format: html
+---
+
+# Setup and Library Loading
+
+```{r setup, message=FALSE}
+library(readr)       # for data import
+library(dplyr)       # for data manipulation
+library(tidyr)       # for data reshaping
+library(ggplot2)     # for plotting
+library(ggfortify)   # for PCA visualization
+library(cluster)     # for k-means clustering
+library(factoextra)  # for cluster visualization
+library(corrplot)    # for correlation plots
+library(GGally)      # for pairs plots
+library(plotly)      # for interactive plots
+```
+
+# 1. Country Data Analysis
+
+## 1.1 Data Import and Overview
+
+```{r country-import}
+# Import country data
+country_data <- read_csv("week8/Träning week8/country_data.csv")
+
+# Display structure and summary
+glimpse(country_data)
+summary(country_data)
+
+# Check for missing values
+country_data %>%
+  summarise_all(~sum(is.na(.)))
+```
+
+## 1.2 Exploratory Data Analysis
+
+```{r country-eda}
+# Create correlation matrix
+country_numeric <- country_data %>%
+  select(-country) %>%
+  select_if(is.numeric)
+
+# Correlation plot
+corrplot(cor(country_numeric, use = "complete.obs"), 
+         method = "circle", 
+         type = "upper",
+         title = "Correlation Matrix - Country Indicators")
+
+# Pairs plot for key variables
+country_data %>%
+  select(child_mort, exports, health, income, life_expec, gdpp) %>%
+  ggpairs(title = "Key Country Development Indicators")
+```
+
+## 1.3 Principal Component Analysis
+
+```{r country-pca}
+# Prepare data for PCA (remove country names and handle missing values)
+country_pca_data <- country_data %>%
+  select(-country) %>%
+  na.omit() %>%
+  scale()
+
+# Perform PCA
+country_pca <- prcomp(country_pca_data, center = FALSE, scale. = FALSE)
+
+# Summary of PCA
+summary(country_pca)
+
+# Scree plot
+fviz_eig(country_pca, addlabels = TRUE, title = "Scree Plot - Country Data PCA")
+
+# Biplot
+autoplot(country_pca, data = country_data, 
+         loadings = TRUE, loadings.label = TRUE,
+         title = "PCA Biplot - Country Development Data")
+
+# Contribution of variables to PC1 and PC2
+fviz_contrib(country_pca, choice = "var", axes = 1, top = 10,
+             title = "Contribution to PC1")
+
+fviz_contrib(country_pca, choice = "var", axes = 2, top = 10,
+             title = "Contribution to PC2")
+```
+
+## 1.4 K-Means Clustering
+
+```{r country-kmeans}
+# Determine optimal number of clusters
+fviz_nbclust(country_pca_data, kmeans, method = "wss", k.max = 10) +
+  labs(title = "Elbow Method - Country Data")
+
+fviz_nbclust(country_pca_data, kmeans, method = "silhouette", k.max = 10) +
+  labs(title = "Silhouette Method - Country Data")
+
+# Perform k-means with optimal k (adjust based on above plots)
+set.seed(123)
+country_kmeans <- kmeans(country_pca_data, centers = 4, nstart = 25)
+
+# Visualize clusters
+fviz_cluster(country_kmeans, data = country_pca_data,
+             title = "K-Means Clustering - Country Data")
+
+# Add cluster assignments to original data
+country_clustered <- country_data %>%
+  na.omit() %>%
+  mutate(cluster = as.factor(country_kmeans$cluster))
+
+# Analyze cluster characteristics
+country_clustered %>%
+  group_by(cluster) %>%
+  summarise(
+    count = n(),
+    avg_income = mean(income),
+    avg_life_expec = mean(life_expec),
+    avg_child_mort = mean(child_mort),
+    avg_gdpp = mean(gdpp),
+    .groups = 'drop'
+  )
+```
+
+# 2. Household Tasks Analysis
+
+## 2.1 Data Import and Preprocessing
+
+```{r housetasks-import}
+# Import household tasks data
+housetasks <- read_csv("housetasks2.csv")
+
+glimpse(housetasks)
+
+# Transform data for analysis
+housetasks_long <- housetasks %>%
+  pivot_longer(cols = -Task, names_to = "Person", values_to = "Hours") %>%
+  mutate(Task = factor(Task))
+
+print(housetasks_long)
+```
+
+## 2.2 Visualization and Analysis
+
+```{r housetasks-viz}
+# Stacked bar chart
+ggplot(housetasks_long, aes(x = Task, y = Hours, fill = Person)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Household Task Distribution",
+       x = "Task", y = "Hours") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Heatmap
+housetasks_matrix <- as.matrix(housetasks[,-1])
+rownames(housetasks_matrix) <- housetasks$Task
+
+heatmap(housetasks_matrix, 
+        Colv = NA, Rowv = NA,
+        col = heat.colors(50),
+        main = "Household Tasks Heatmap")
+```
+
+## 2.3 PCA on Household Tasks
+
+```{r housetasks-pca}
+# Prepare data for PCA
+housetasks_pca_data <- scale(housetasks[,-1])
+rownames(housetasks_pca_data) <- housetasks$Task
+
+# Perform PCA
+housetasks_pca <- prcomp(housetasks_pca_data, center = FALSE, scale. = FALSE)
+
+# PCA summary
+summary(housetasks_pca)
+
+# Biplot
+autoplot(housetasks_pca, 
+         loadings = TRUE, loadings.label = TRUE,
+         title = "PCA Biplot - Household Tasks")
+
+# Show task loadings on first two components
+as.data.frame(housetasks_pca$rotation[,1:2]) %>%
+  arrange(desc(abs(PC1)))
+```
+
+# 3. S&P 500 Financial Analysis
+
+## 3.1 Data Import and Preprocessing
+
+```{r sp500-import}
+# Import S&P 500 data
+sp500_data <- read_csv("sp500_data.csv")
+sp500_sectors <- read_csv("sp500_sectors.csv")
+
+# Check data structure
+glimpse(sp500_data)
+glimpse(sp500_sectors)
+
+# Sample the data for analysis (first 100 rows and 20 stocks)
+sp500_sample <- sp500_data[1:100, 1:21]  # Adjust as needed
+
+print(paste("Sample data dimensions:", nrow(sp500_sample), "x", ncol(sp500_sample)))
+```
+
+## 3.2 Financial Data PCA
+
+```{r sp500-pca}
+# Prepare data for PCA (remove date column, handle NAs)
+sp500_numeric <- sp500_sample %>%
+  select(-1) %>%  # Remove first column (likely date)
+  na.omit()
+
+if(nrow(sp500_numeric) > 0 && ncol(sp500_numeric) > 1) {
+  # Scale the data
+  sp500_scaled <- scale(sp500_numeric)
+  
+  # Perform PCA
+  sp500_pca <- prcomp(sp500_scaled, center = FALSE, scale. = FALSE)
+  
+  # Summary
+  summary(sp500_pca)
+  
+  # Scree plot
+  fviz_eig(sp500_pca, addlabels = TRUE, title = "Scree Plot - S&P 500 Sample")
+  
+  # Biplot (if not too crowded)
+  if(ncol(sp500_numeric) <= 10) {
+    autoplot(sp500_pca, 
+             loadings = TRUE, loadings.label = TRUE,
+             title = "PCA Biplot - S&P 500 Sample")
+  }
+  
+  # Show contribution of variables
+  fviz_contrib(sp500_pca, choice = "var", axes = 1, top = 10,
+               title = "Top Contributors to PC1")
+}
+```
+
+## 3.3 Sector Analysis
+
+```{r sector-analysis}
+# Analyze sector distribution
+sp500_sectors %>%
+  count(sector_label, sort = TRUE) %>%
+  ggplot(aes(x = reorder(sector_label, n), y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "S&P 500 Sector Distribution",
+       x = "Sector", y = "Number of Companies") +
+  theme_minimal()
+
+# Sub-sector analysis within Technology
+sp500_sectors %>%
+  filter(sector_label == "Technology") %>%
+  count(sub_sector, sort = TRUE) %>%
+  ggplot(aes(x = reorder(sub_sector, n), y = n)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  coord_flip() +
+  labs(title = "Technology Sub-sectors in S&P 500",
+       x = "Sub-sector", y = "Number of Companies") +
+  theme_minimal()
+```
+
+# 4. Loan Data Analysis
+
+## 4.1 Data Import and Overview
+
+```{r loan-import}
+# Import loan data
+loan_data <- read_csv("loan_data.csv")
+
+glimpse(loan_data)
+summary(loan_data)
+
+# Check for missing values
+loan_data %>%
+  summarise_all(~sum(is.na(.)))
+```
+
+## 4.2 Loan Data Analysis
+
+```{r loan-analysis}
+# Basic exploratory analysis
+if("purpose" %in% names(loan_data)) {
+  loan_data %>%
+    count(purpose, sort = TRUE) %>%
+    head(10) %>%
+    ggplot(aes(x = reorder(purpose, n), y = n)) +
+    geom_bar(stat = "identity", fill = "orange") +
+    coord_flip() +
+    labs(title = "Loan Purposes Distribution",
+         x = "Purpose", y = "Count") +
+    theme_minimal()
+}
+
+# Numeric variables analysis
+loan_numeric <- loan_data %>%
+  select_if(is.numeric)
+
+if(ncol(loan_numeric) > 1) {
+  # Correlation matrix
+  corrplot(cor(loan_numeric, use = "complete.obs"), 
+           method = "circle", 
+           title = "Loan Data Correlations")
+  
+  # PCA if we have enough numeric variables
+  if(ncol(loan_numeric) >= 3) {
+    loan_scaled <- scale(loan_numeric)
+    loan_pca <- prcomp(loan_scaled, center = FALSE, scale. = FALSE)
+    
+    summary(loan_pca)
+    
+    fviz_eig(loan_pca, addlabels = TRUE, title = "Scree Plot - Loan Data")
+  }
+}
+```
+
+# 5. Comparative Analysis and Conclusions
+
+## 5.1 Summary of Findings
+
+```{r summary}
+cat("Summary of Analyses:\n")
+cat("==================\n\n")
+
+cat("1. Country Data:\n")
+cat("   - PCA revealed patterns in development indicators\n")
+cat("   - K-means clustering identified country groups\n\n")
+
+cat("2. Household Tasks:\n")
+cat("   - Task distribution patterns identified\n")
+cat("   - PCA showed task assignment relationships\n\n")
+
+cat("3. S&P 500 Data:\n")
+cat("   - Financial market patterns analyzed\n")
+cat("   - Sector distributions examined\n\n")
+
+cat("4. Loan Data:\n")
+cat("   - Lending patterns investigated\n")
+cat("   - Risk factors analyzed\n\n")
+```
+
+## 5.2 Methodological Insights
+
+```{r insights}
+cat("Key Methodological Learnings:\n")
+cat("============================\n\n")
+
+cat("1. PCA is effective for:\n")
+cat("   - Dimensionality reduction\n")
+cat("   - Identifying key variable relationships\n")
+cat("   - Data visualization in lower dimensions\n\n")
+
+cat("2. K-means clustering helps:\n")
+cat("   - Identify natural groupings\n")
+cat("   - Segment populations/observations\n")
+cat("   - Reduce data complexity\n\n")
+
+cat("3. Data preprocessing is crucial:\n")
+cat("   - Scaling variables for PCA\n")
+cat("   - Handling missing values\n")
+cat("   - Choosing appropriate number of clusters\n")
+```
+
+# References and Notes
+
+This training assignment covers:
+- Principal Component Analysis (PCA)
+- K-means clustering
+- Data visualization techniques
+- Multiple dataset analysis
+- Comparative methodology assessment
+
+Please adjust the analysis parameters and interpretations based on the specific requirements in the PDF instructions.

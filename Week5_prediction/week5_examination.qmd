@@ -1,0 +1,278 @@
+---
+title: "Week 5 Examination Assignment: Asphalt Data Regression"
+author: "Isak Jonsson Zachari"
+date: "2025-05-06"
+format: html
+---
+
+# Introduction
+This document presents the solutions to the Week 5 examination assignment for Regression and Prediction, using the `Asphalt_Data.xls` dataset. We perform descriptive analysis, build simple and multiple regression models, conduct stepwise selection, check model adequacy, identify influential observations, and provide recommendations.
+
+• X1: The viscosity of the asphalt (log)
+• X2: The percentage of asphalt in the surface course
+• X3: The percentage of asphalt in the base course
+• X4: Is the run, an indicator variable separating the 31 pavements into two sets.
+• X5: The percentage of fines in the surface course
+• X6: The percentage of voids in the surface cours
+
+```{r setup}
+library(readxl)
+library(ggplot2)
+library(dplyr)
+
+# Load and clean the data
+asphalt_raw <- read_excel("Asphalt_Data.xls")
+asphalt <- asphalt_raw %>%
+  rename(
+    rut_depth = yi,
+    viscosity = xi1,
+    pct_asph_surf = xi2,
+    pct_asph_base = xi3,
+    run_set_dummy = xi4,
+    pct_fines = xi5,
+    pct_voids = xi6,
+    log_visc = xi1_Log
+  )
+
+colnames(asphalt)
+```
+
+
+# Task 1: Descriptive Analysis of the Data
+
+## 1.1 Summary Statistics
+```{r summary-stats}
+summary(asphalt)
+
+
+
+
+#Beroende variabeln har högt meddelvärde, medan medianen ör på 3.580
+```
+
+## 1.2 Visualizations. 4 plots
+Correlation matrix
+```{r }
+library(corrplot)
+# Compute correlation matrix
+cor_mat <- cor(asphalt)
+# Plot correlation matrix
+title("Correlation Matrix of Asphalt Variables")
+corrplot(cor_mat, method = "color", addCoef.col = "black", tl.cex = 0.8)
+
+#De som korrelarer mest posetivt med beroende variabeln är pct_asph_surf, låg postiv korrelation på 0.24, sen också pct_asph_base med 0.21.
+
+#mycket neg korrelation är log_viso med -0.88 ochj run_set_dummy med -0.81.,
+#pct_voids har måttlig negativ korrealtion. 
+```
+```{r histograms}
+# Distribution of rut depth (Y)
+ggplot(asphalt, aes(x = rut_depth)) +
+  geom_histogram(bins=10) +
+  labs(title = "Distribution of Rut Depth (Y)", x = "Rut depth per million-wheel passes (y)")
+
+# Ser inte bra ut ingen tydlig fördelning
+```
+
+
+```{r}
+# Scatter: rut_depth vs log_visc
+ggplot(asphalt, aes(x = log_visc, y = rut_depth)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Rut Depth vs Log(Viscosity)", x = "Log of Viscosity")
+```
+
+```{r}
+# Scatter: rut_depth vs pct_asph_surf
+ggplot(asphalt, aes(x = pct_asph_surf, y = rut_depth)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "% Asphalt in Surface Course vs Rut Depth", x = "% Asphalt in Surface Course")
+``` 
+
+```{r}
+# Scatter: rut_depth vs pct_voids
+ggplot(asphalt, aes(x = pct_voids, y = rut_depth)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "% Voids in Surface Course vs Rut Depth", x = "% Voids in Surface Course")
+```
+
+
+> **Findings from Descriptive Analysis:**
+Summary statistics: rut_depth, beroende variabeln: Varierar från 0.26 till 26.2 per million weel passes, har en median på 3.58 och medelvärde på 6.51. Detta ineikderar en snedfördelad höger fördelning. Viscotity varierar från 0.6 till 500 cP, vilket indikerar att log transofmraitonen va rmkt lämplig. log_visc blir mer symmetrisk med medelvärde på 2.73 ca. De andra har inte lika stora intervall, och är omkring sitt medelvärde.  
+> - **Summary Statistics:** `rut_depth` ranges from 0.26 to 26.2 per million-wheel passes, with a median of 3.58 and mean of 6.
+
+> - **Histogram of Rut Depth:** Denna visar här en kraftig högersvans vilket stärker det jag skrev tidigare. Finns några extrema värden, men dom flesta är i det lägre intervallet. Väll extremvärderna som drrar upp medelvärdet rejält. 
+.
+> - **Rut Depth vs Log(Viscosity):** Visar en stark negativ linjär trend, vilket indikerar att högre (logaritmisk) viskositet avsevärt minskar spårdjupet. 
+
+> - **Rut Depth vs % Asphalt in Surface Course:** Visar ett måttligt positivt samband, vilket tyder på att beläggningar med något mer asfalt i ytskiktet tenderar att uppvisa högre spårdjup. 
+
+> - **Rut Depth vs % Voids in Surface Course:** Uppvisar ett tydligt negativt samband. 
+
+
+# Task 2: Simple Linear Regression Models
+
+Väljer följande två variablar: 
+
+- **log_visc** har en Pearsonkorrelation på –0.88 med spårdjupet (`rut_depth`), vilket indikerar en stark negativ linjär relation: ju högre log(viskositet), desto mindre spårdjup, vilket vi vill uppnå. 
+
+- Väljer också pct_voids då den hade negativ korerlation på -0.42
+
+## 2.1 Model 1: \( y \sim \mathrm{log_visc} \)
+```{r}
+model1 <- lm(rut_depth ~ log_visc, data = asphalt)
+summary(model1)
+```
+
+> - **t-value** for `log_visc`: [-10.21]  
+> - **P-value** for `log_visc`: [4.152e-11]  
+> - **R-squared**: [0.7822 på R^2 samt Adjusted R-squared: 0.7747, vilket är nära varrandra och är en bra indikation]  
+> 
+> Modellen förklarar ca 78,22 % av den totala variationen i spårdjup. Det betyder att nästan 4 av 5 delar av variationen i rut_depth kan hänföras till variationen i log(viskositet) i denna enkla modell vilket är bra!
+
+## 2.2 Model 2: \( y \sim pct_voids \)
+```{r}
+model2 <- lm(rut_depth ~ pct_voids, data = asphalt)
+summary(model2)
+```
+
+> - **t-value** for `X2`: [-2.521]  
+> - **P-value** for `X2`: [0.01747]  
+> - **R-squared**: [Multiple R-squared:  0.1797, Adjusted R-squared:  0.1514]  
+
+
+## 2.3 Model Comparison
+
+
+Jag skulle rekommendera Modell 1 framför Modell 2, av följande skäl:
+Högre förklaringsgrad: 
+𝑅2= 78,2, samt Adj-R = 77.47, mot R2=17.97% mycket lågt. 
+
+Samt så säger P värdet att vi kan förkasta nollhypotesen om att log_visc inte har någon sifnifikant effekt på spårdjupet. 
+Alltså det finns bevis att säga att den har det. Med p ≈ 4·10⁻¹¹ (mycket mindre än < 0,001) på 0.1 % signifikansnivå är  alltså förkastar vi H₀ och accepterar att koefficienten är signifikant skild från noll.
+
+
+
+# Task 3: Multiple Regression Model with All Variables
+
+använder alla prediktors (with `log_visc` istället för of `viscosity`):
+```{r}
+model_all <- lm(rut_depth ~ log_visc + pct_asph_surf + pct_asph_base + run_set_dummy + pct_fines + pct_voids, data = asphalt)
+summary(model_all)
+```
+
+Analys: 
+T‑värden och p‑värden för koefficienterna
+
+(Intercept): t = –0,592, p = 0,5597
+
+log_visc: t = –3,428, p = 0,0022 **
+
+pct_asph_surf: t = +1,590, p = 0,1248
+
+pct_asph_base: t = +0,318, p = 0,7531
+
+run_set_dummy: t = +0,539, p = 0,5949
+
+pct_fines: t = +0,115, p = 0,9094
+
+pct_voids: t = +0,445, p = 0,6604
+
+*Endast log_visc är signifikant på 1 %-nivån (p < 0,01).
+
+Förklaringsgrad: 
+Förklarar ca 80% av variationen i förklarande variabeln, men antaligen overfittad pga stort glapp till R^2(adj).
+
+
+Jämförsles med multipel modell?
+R^2 ökar marginellt från 78,2 % (modell 1) till 80,6 %, men R2(adj)  sjunker från 77,47 % till 75,75 %.Vilket inte är posetivt. 
+
+Endast log_visc bidrar signifikant i den multipla modellen; övriga variabler ger inte tillräcklig extra förklaringskraft för att motivera sin medtagning.
+
+Slutsats: Den enkla modellen med log_visc är att föredra, genom att den nästan lika förklaringsstark och statistiskt tydligare än den fulla multipla modellen. Den multipla blir mer komplex och overfittad. 
+
+
+
+# Task 4: Stepwise Regression
+```{r stepwise-regression}
+step_model <- step(model_all, direction = "both")
+summary(step_model)
+```
+
+
+Stegvis regression (model_step)
+# Regressorer borttagna: pct_fines, pct_asph_base, pct_voids, run_set_dummy
+# Anledning: varje borttagning minskade AIC-värdet, vilket visar att variabeln gav låg extra förklaringsgrad
+Bestämningskoefficient (R²):
+#   - Multiple R² = 0.7995
+#   - Adjusted R² = 0.7852
+Modelluttryck:
+#   ŷ = -2.3545 + (-2.6914)*log_visc + 3.3203*pct_asph_surf
+Modellkontroll?
+#   Ja, eftersom den övergripande F-testet är signifikant (p ≈ 1.69e-10),
+#   men vi bör kontrollera residualantaganden då pct_asph_surf ej är signifikant (p = 0.131).
+
+
+
+# Task 5: Model Adequacy Checking
+```{r residual-plots, fig.height=6, fig.width=6}
+par(mfrow = c(2, 2))
+plot(step_model)
+```
+
+Modellantaganden och residualanalys:
+1. Linjäritet: I Residuals vs Fitted bör medelvärdet av residualerna ligga runt noll och inga tydliga mönster (böjar eller systematiska avvikelser) syns.
+2. Homoskedasticitet (konstant varians): I Scale-Location (sqrt(|res|) vs fitted) ska punkterna spridas jämnt utan en växande trend över fitted-värden.
+3. Normalitet: I Q-Q-plot ska punkterna följa den diagonala linjen; stora avvikelser i ändarna  kan indikera avvikande svansar.
+4. Oberoende & påverkan: I Residuals vs Leverage identifieras observationer med högt inflytande.
+Punkter utanför Cook’s-avståndet (stippen) är potentiellt inflytelserika.
+
+
+
+
+# Task 6: influens värden diagnostik
+```{r}
+cooks <- cooks.distance(step_model)
+plot(cooks, type = "h", main = "Cook's Distance")
+abline(h = 4/(nrow(asphalt) - length(coef(step_model))), col = "red")
+influential_points <- which(cooks > 4/(nrow(asphalt) - length(coef(step_model))))
+influential_points
+```
+
+
+
+
+# Task 6.1: Kommentar efter influensdiagnostik
+```{r}
+# Påvisade inflytelserika värden:
+#   - Endast observation 13 har Cook's distance över tröskelvärdet.
+# Rekommendation:
+#   1. Granska datapunkten 13 för eventuella inmatningsfel eller extrema förhållanden.
+#   2. Kör modellen utan denna punkt för att se hur koefficienter och R² förändras.
+#   3. Baserat på domänkunskap besluta om punkten ska exkluderas eller behållas.
+```
+
+
+
+7. Skulle jag rekommmendera modellen från fråga 6? 
+# Jag rekommenderar att vi använder den stegvisa modellen (log_visc + pct_asph_surf)
+# eftersom den har hög förklaringsgrad (R² = 0.7995, justerat R² = 0.7852)
+# och endast behåller signifikanta och meningsfulla variabler.
+# log_visc är starkt signifikant (p < 0.001) och pct_asph_surf bidrar praktiskt men kan i nästa iteration prövas med exempelvis interatkions term log_visc*pct_asph_surf för att se hur residualerna ändras
+
+
+8: Fortsatt arbete och rekommendationer:
+1. Datainsamling: Inkludera ytterligare eventuella variablar, kanske temperatur, balestning på vägarna från trafiken eller annat för att göra modellen bättre och mer nyanserad.  Samt ännu mer data det var inte ås mycket data. 
+
+2. Validering: Kolla hur modellen skulle kunna prestera mot ny data för att bedöma hur den faktiskt presterar. 
+
+3. Övervakning: Installera system som mäter spårdjupet löpande, för att uppdatera modellen kontunuerligt och fånga mer nyanserade egenskaper i materialen och trafikmönster. 
+
+
+
+
+
+

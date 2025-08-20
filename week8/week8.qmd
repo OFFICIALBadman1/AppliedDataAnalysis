@@ -1,0 +1,197 @@
+---
+
+title: "Week 8 Exam: PCA & K-Means Clustering"
+author: "Isak Jonsson Zachari"
+date: "2025-08-01"
+format: html
+------------
+
+# 1 – Load Packages
+
+```{r setup, message=FALSE}
+library(readr)       
+library(dplyr)       
+library(tidyr)      
+library(ggplot2)     
+library(ggfortify)   
+```
+
+# 2 – Data Import & Preprocessing
+
+```{r import}
+# 2.1 Import dataset with decimal comma
+raw_path <- "K0021N/week8/w8_exam_data.csv"
+df_raw <- read_delim(raw_path, delim = ";", locale = locale(decimal_mark = ","))
+
+# 2.2 Rename features and convert to numeric
+df <- df_raw %>%
+  rename(
+    Annual_Equipment_Spend           = x1,
+    AI_Readiness                     = x2,
+    Platform_Adoption                = x3,
+    Service_Contract_Preference      = x4,
+    Predictive_Maintenance_Adoption  = x5,
+    Outcome_Orientation              = x6,
+    Digital_Maturity                 = x7,
+    Data_Share_Willingness           = x8,
+    Customization_Demand             = x9,
+    Innovation_Partner_Score         = x10,
+    Extra1                           = x11,
+    Extra2                           = x12,
+    Extra3                           = x13
+  ) %>%
+  mutate(across(everything(), as.numeric))
+
+# 2.3 Inspect structure
+df %>% glimpse()
+```
+
+# 3 – Standardize Data
+
+```{r scale}
+# 3.1 Z-standardize all features
+
+df_scaled <- df %>% scale() %>% as_tibble()
+
+# 3.2 Summary statistics
+summary(df_scaled)
+```
+
+# 4 – Principal Component Analysis (PCA)
+
+```{r pca}
+# 4.1 Run PCA on standardized data
+pca_res <- prcomp(df_scaled, center = TRUE, scale. = FALSE)
+
+# 4.2 Variance explained table
+df_pve <- tibble(
+  PC         = paste0("PC", seq_along(pca_res$sdev)),
+  Variance   = (pca_res$sdev^2) / sum(pca_res$sdev^2),
+  Cumulative = cumsum((pca_res$sdev^2) / sum(pca_res$sdev^2))
+)
+df_pve %>% slice_head(n = 6)
+```
+
+## 4.1 Scree & Cumulative Variance Plot
+
+```{r pca-plots, fig.height=4}
+df_pve %>%
+  mutate(PC_num = row_number()) %>%
+  pivot_longer(c(Variance, Cumulative), names_to = "Metric") %>%
+  mutate(Metric = recode(Metric,
+                         Variance   = "Scree plot",
+                         Cumulative = "Cumulative variance")) %>%
+  ggplot(aes(PC_num, value)) +
+    geom_line() + geom_point(size = 2) +
+    facet_wrap(~Metric, scales = "free_y") +
+    scale_x_continuous(breaks = 1:nrow(df_pve)) +
+    labs(x = "Principal component", y = NULL) +
+    theme_minimal()
+```
+
+**Decision:** Retain **5 principal components** (elbow at PC5; cumulative \~73%; eigenvalues > 1).
+
+## 4.2 Loadings Interpretation
+
+```{r loadings}
+# Top 5 loadings for PCs 1–5
+data.frame(PC = paste0("PC", 1:5)) %>%
+  rowwise() %>%
+  mutate(
+    Top = list(
+      pca_res$rotation %>%
+        as_tibble(rownames = "Variable") %>%
+        mutate(Loading = abs(.data[[PC]])) %>%
+        arrange(desc(Loading)) %>%
+        slice_head(n = 5) %>%
+        pull(Variable)
+    )
+  )
+```
+
+| PC  | Business Interpretation                      |
+| --- | -------------------------------------------- |
+| PC1 | Legacy costs vs. Digital maturity            |
+| PC2 | Service-contract focus vs. CapEx orientation |
+| PC3 | Co-innovation & Customization appetite       |
+| PC4 | Scale (spend) vs. Data-sharing openness      |
+| PC5 | Latent “Extra” factors (internal metrics)    |
+
+## 4.3 PCA Biplot (PC1 vs. PC2)
+
+```{r biplot, fig.height=4}
+autoplot(pca_res, data = df, loadings = TRUE,
+         loadings.label = TRUE, alpha = 0.6, shape = 19) +
+  ggtitle("PCA Biplot: PC1 vs PC2") +
+  theme_minimal()
+```
+
+# 5 – K-Means Clustering
+
+## 5.1 Elbow Method
+
+```{r elbow, fig.height=3}
+set.seed(123)
+wss <- sapply(1:10, function(k) {
+  kmeans(df_scaled, centers = k, nstart = 20)$tot.withinss
+})
+plot(1:10, wss, type = "b",
+     xlab = "Number of clusters (k)",
+     ylab = "Total within-cluster SS")
+```
+
+**Decision:** Choose **k = 5** (curve flattens after k=5).
+
+## 5.2 Fit & Label Clusters
+
+```{r kmeans}
+set.seed(2025)
+km_res <- kmeans(df_scaled, centers = 5, nstart = 25)
+df_clustered <- df %>% mutate(Cluster = factor(km_res$cluster))
+```
+
+## 5.3 Cluster Plot on PCs
+
+```{r cluster-plot, fig.height=4}
+as_tibble(pca_res$x[,1:2]) %>%
+  bind_cols(Cluster = df_clustered$Cluster) %>%
+  ggplot(aes(PC1, PC2, colour = Cluster)) +
+    geom_point(size = 2, alpha = 0.7) +
+    labs(title = "K-Means Clusters on First Two PCs") +
+    theme_minimal() +
+    scale_color_brewer(type = "qual", palette = "Set1")
+```
+
+## 5.4 Cluster Profiles
+
+```{r cluster-summary}
+df_clustered %>%
+  group_by(Cluster) %>%
+  summarise(across(Annual_Equipment_Spend:Innovation_Partner_Score, mean),
+            .groups = "drop")
+```
+
+| Cluster | Profile Summary                                     |
+| ------- | --------------------------------------------------- |
+| 1       | High spend · digital maturity · outcome orientation |
+| 2       | Moderate spend · high customization demand          |
+| 3       | Low spend · low platform adoption                   |
+| 4       | Low spend · high AI readiness                       |
+| 5       | Highest spend · legacy-oriented                     |
+
+# 6 – Conclusions & Reflection
+
+**Recommended Segment:** **Cluster 1** (High spend, digital maturity, outcome focus) for AI-driven service contracts.
+
+**Advantages:**
+
+* PCA denoises and reduces 13 variables to 5 orthogonal factors.
+* K-Means quickly yields actionable customer segments.
+
+**Limitations:**
+
+* Unsupervised methods ignore real outcomes; requires external validation.
+* K-Means assumes spherical clusters and depends on random seed.
+* Extras (Extra1–3) represent unlabeled internal metrics; retained to maximize variance but flagged as latent factors.
+
+*End of document.*

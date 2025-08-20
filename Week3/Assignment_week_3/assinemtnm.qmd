@@ -1,0 +1,568 @@
+---
+title: "Week 3 Examination Assignments"
+author: "Isak Jonsson Zachari"
+date: "2025-04-13"
+format: 
+  html:
+    toc: true                # Table of Contents
+    code-fold: true          # Collapse code chunks
+    code-tools: true         # Add code copy buttons
+    theme: cosmo             # Clean theme
+    css: styles.css          # Optional custom CSS
+---
+
+
+Importerar och inspekterar datan
+
+```{r}
+library(tidyverse)    
+library(readr)   
+
+
+df_fb <- read_delim("Week3/Assignment_week_3/dataset_Facebook.csv", delim=";")
+
+glimpse(df_fb)
+
+str(df_fb)
+head(df_fb)
+summary(df_fb)
+
+```
+
+2. Ändra namn på variablarna
+```{r}
+
+df_fb <- df_fb %>%
+    rename(
+    page_total_likes           = `Page total likes`,
+    post_type                  = Type,
+    category_code              = Category,
+    post_month                 = `Post Month`,
+    post_weekday               = `Post Weekday`,
+    post_hour                  = `Post Hour`,
+    paid_code                  = Paid,
+    lifetime_post_total_reach  = `Lifetime Post Total Reach`,
+    lifetime_post_total_impressions = `Lifetime Post Total Impressions`,
+    lifetime_engaged_users     = `Lifetime Engaged Users`,
+    lifetime_post_consumers    = `Lifetime Post Consumers`,
+    lifetime_post_consumptions = `Lifetime Post Consumptions`,
+    lifetime_post_impressions_liked = `Lifetime Post Impressions by people who have liked your Page`,
+    lifetime_post_reach_like   = `Lifetime Post reach by people who like your Page`,
+    lifetime_page_engaged      = `Lifetime People who have liked your Page and engaged with your post`,
+    total_interactions         = `Total Interactions`
+    )
+
+str(df_fb)
+glimpse(df_fb)
+summary(df_fb)
+
+
+```
+
+3. Ändrar till korrekt datatyp 
+
+```{r}
+
+library(dplyr)
+
+df_fb <- df_fb %>%
+  mutate(
+    page_total_likes = as.numeric(page_total_likes),
+    post_hour = as.numeric(post_hour),
+    lifetime_post_total_reach = as.numeric(lifetime_post_total_reach),
+    lifetime_post_total_impressions = as.numeric(lifetime_post_total_impressions),
+    lifetime_engaged_users = as.numeric(lifetime_engaged_users),
+    lifetime_post_consumers = as.numeric(lifetime_post_consumers),
+    lifetime_post_consumptions = as.numeric(lifetime_post_consumptions),
+    lifetime_post_impressions_liked = as.numeric(lifetime_post_impressions_liked),
+    lifetime_post_reach_like = as.numeric(lifetime_post_reach_like),
+    lifetime_page_engaged = as.numeric(lifetime_page_engaged),
+    comment = as.numeric(comment),
+    like = as.numeric(like),
+    share = as.numeric(share),
+    total_interactions = as.numeric(total_interactions),
+    category_code = as.integer(category_code),
+    post_month = as.integer(post_month),
+    post_weekday = as.integer(post_weekday),
+    paid_code = as.integer(paid_code),
+    # Skapar nu kategorisk faktor    
+    category = factor(category_code,
+                      levels = c(1, 2, 3),
+                      labels = c("action", "product", "inspiration")),
+    month_name = factor(post_month,
+                        levels = 1:12,
+                        labels = month.name),
+    weekday_name = factor(post_weekday,
+                          levels = 1:7,
+                          labels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")),
+    paid = factor(paid_code,
+                  levels = c(0, 1),
+                  labels = c("Not paid", "Paid"))
+  )
+
+
+#kontrollerar så det är korrekt ändrat
+str(df_fb)
+glimpse(df_fb)
+
+```
+
+
+
+2. Examination Assignment 2 – Measures of location and variability
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+#Beräknar medelvärde, trimmat medel och median för 1 numerisk vairabel
+df_location <- df_fb %>%
+   summarise(
+    Mean = mean(total_interactions, na.rm = TRUE),
+    `Trimmed_Mean_(10%)` = mean(total_interactions, trim = 0.10, na.rm = TRUE),
+    Median = median(total_interactions, na.rm = TRUE)
+  )
+df_location
+summary(df_fb$total_interactions)
+# 3 kvartil är 228,5 Högsta värdet är 6334
+
+
+#medel: 212
+#trimat: 149 #tar bort 10 högsta/lägsta innan medelvärdet beräknas. Finns alltså mågna höga värden 
+# samt 124 för medianen
+
+#Skapar boxplot
+df_fb %>%
+    ggplot(aes(y=total_interactions))+
+    geom_boxplot()+
+    scale_y_continuous(limits = c(0, 3000)) +
+    labs(title="Boxplot av Totala Interaktioner", y="total_interactions")+
+    theme_minimal()
+
+
+
+```
+
+
+#Lite histogram
+```{r}
+library(tidyverse)
+
+
+# Histogram för rådata
+df_fb %>%
+  ggplot(aes(x = total_interactions)) +
+  geom_histogram(binwidth = 40, fill = "blue", alpha = 0.7) +
+  labs(title = "Histogram över Totala Interaktioner", x = "Total Interactions", y = "Antal") +
+  theme_minimal()
+
+
+  #Mycket höger snedfördelad data 
+
+
+
+
+```
+
+
+Har total_interactions några uteliggare? Isåfall vilka?
+```{r}
+
+#Identiferin g av uteliggare med IQR
+# Tar reda på antalet uteliggare utanför IQR
+gränser <- df_fb %>%
+  summarise(
+      Q1 = quantile(total_interactions, 0.25, na.rm = TRUE),
+      Q3 = quantile(total_interactions, 0.75, na.rm = TRUE),
+      IQR_val = IQR(total_interactions, na.rm = TRUE)
+    ) %>%
+    mutate(
+      undre_gräns = Q1 - 1.5 * IQR_val,
+      övre_gräns = Q3 + 1.5 * IQR_val
+    )
+gränser
+
+# Hämta gränsvärdena
+undre_gräns <- gränser %>% pull(undre_gräns)
+övre_gräns <- gränser %>% pull(övre_gräns)
+
+# Filtrera ut och räkna antalet outliers
+df_fb %>%
+  filter(total_interactions < undre_gräns | total_interactions > övre_gräns) %>%
+    summarise(antal_uteliggare = n())
+#40 st uteliggare finns
+
+```
+
+```{r}
+#Beärkning a variabilitetmått
+
+df_variability <- df_fb %>%
+  summarise(
+    Variance = var(total_interactions, na.rm = TRUE),
+    SD = sd(total_interactions, na.rm = TRUE),
+    MAD = mad(total_interactions, na.rm = TRUE), # standard MAD(absolut medelfel från medianen)
+    Min = min(total_interactions, na.rm = TRUE),
+    Max = max(total_interactions, na.rm = TRUE),
+    Range = max(total_interactions, na.rm = TRUE) - min(total_interactions, na.rm = TRUE),
+    IQR = IQR(total_interactions, na.rm = TRUE)
+  )
+df_variability
+
+
+"""
+Datan är tydligt högerskev. Majoriteten av observationerna tenderar att ligga runt medianvärdet (124), i den lägre delen av intervallet och inom IQR (ungefär 71–229), men några få observationer (uteliggare) med mycket höga värden (upp till 6334) drar upp både medelvärdet och standardavvikelsen. Detta är kanske varför man ser en standardavvikelse (380) som är mycket högre än det robusta måttet, MAD (100).
+"""
+
+```
+
+
+3. Examination Assignment 3 – Data distributions
+
+```{r}
+#3.1: Beräknar olika kvartiler
+#Lösning använd quantile()
+k = c(0.05,0.25,0.5,0.75,0.95) #kvantilerna från 5 till 95%
+
+kvartiler_total_interactions <- quantile(df_fb$total_interactions,k, na.rm=TRUE)
+
+print(kvartiler_total_interactions)
+"""
+  5%    25%    50%    75%    95%
+  9.95  71.00 123.50 228.50 605.85
+""" 
+
+```
+
+3.2 SKapa lite plottar
+```{r}
+library(ggplot2)
+
+#skapar ett hsitogram
+df_fb %>%
+  ggplot(aes(x=total_interactions))+
+  geom_histogram(binwidth=40, fill = "lightblue", color = "black")+
+  scale_x_continuous(limits = c(0, 606))+  # Zooma in, så att man ser fram till 95% percentilen, dvs 606
+  labs(
+    title="Histogram av Totala Interatkioenr",
+    subtitle="Fördelning med majoriteten mellan ~10 och ~606)",
+    X="Totala Interatkioenr",
+    y="Antal observationer"
+  )+
+  theme_minimal()
+
+
+
+```
+Plotta densitetsplot
+```{r}
+
+df_fb %>%
+  ggplot(aes(x=total_interactions))+
+  geom_density(fill = "lightblue", color = "black")+
+  scale_x_continuous(limits = c(0, 606)) +  # Zooma in liknande histogrammet
+  labs(
+    title = "Densitetsplot av Totala Interaktioner",
+    subtitle = "Visar hur observationerna är fördelade",
+    x = "Totala Interaktioner",
+    y = "Densitet"
+  )+
+  theme_minimal()
+
+
+"""Analys av hsitogram och densitetsplot
+Tydligh högerskev posetiv fördelning. Tydlig hög puckel i intervallet 0-300 där frekvensenär högst. Meddelvärdet är itne rboust här, medianen bör användas. 
+"""
+
+```
+
+Skapa flera boxplot för category, action, product, inspiration  
+
+```{r}
+
+df_fb %>%
+  filter(total_interactions<610) %>% #filtera ut observationer ovanför 95 percentilen
+    ggplot(aes(x=category, y=total_interactions, fill=category))+
+    geom_boxplot()+
+    labs(
+    title = "Boxplot av Totala Interaktioner per Kategori",
+    x = "Kategori",
+    y = "Totala Interaktioner"
+  )
+
+# Kategorin Product har en högre median och tenderar generellt få fler interaktioner än Action och Inspiration. 
+
+#Uteliggare: Flera extreme värden finns i varje kategori, vilket påvisar att en liten andel inlägg får mycket uppmärksamhet vilket känns logiskt.
+
+```
+
+Skapa likt figur 7. "Influence of type på Lifetime post consumers "
+
+```{r}
+df_fb %>%
+  filter(total_interactions<610) %>%
+    ggplot(aes(x=post_type, y=total_interactions, fill=post_type))+
+    geom_boxplot()+
+    labs(
+    title = "Total Interactions per Post Type (Boxplot-variant",
+    x = "Post Type",          
+    y = "Total Interactions"
+    )+
+    theme_minimal()
+
+
+"""
+Analys:
+Videoinlägg verkar ofta ge fler interaktioner än övriga typer. Detta kan bero på att videoinnehåll engagerar användare under längre tid (man tittar, lyssnar, reagerar), vilket ökar sannolikheten för gilla‐markeringar, kommentarer och delningar. Samtidigt ser du många outliers, vilket tyder på att ett fåtal videoinlägg kan ha blivit virala eller extra populära.
+
+Status‐inlägg har också en ganska hög median och stor spridning. En möjlig tolkning är att textbaserade inlägg ibland kan generera mycket diskussion (t.ex. frågor, berättelser, erbjudanden), medan andra är mindre intressanta.
+
+Fotoinlägg ligger generellt högre än enbart länkar men under video och status. Och finns uteliggare ovanför ochså vissa kan få mcyket hög interatkioner
+
+Länkar: Kanske leder användare bort från Facebook (klcikar sig vidare), vilket kan minska sannolikheten att man gillar/kommenterar känns logiskt. 
+
+
+Många punkter ligger under eller kring medianen, samtidigt som vissa är väldigt höga tyder på att ett fåtal inlägg drar upp totalen. 
+
+"""
+
+
+
+```
+
+
+Violoinplot 
+```{r}
+df_fb %>%
+  ggplot(aes(x=weekday_name, y =lifetime_post_consumers, fill=weekday_name))+
+  geom_violin()+
+  theme_minimal()
+
+"""
+Kommentar:
+Lifetime Post Consumers: Antalet UNIKA användare som har klcikat någonstans på inlägget under inläggets livstid 
+
+De flesta inlägg har låga värden under (500-600), men ett fåtal höjer siffrorna speciellt på vissa specifika dagar såsom söndagar (uppåt 9000 viss dag). 
+"""
+
+
+
+```
+
+
+
+4. Exploring Categorical Data. Bar charts
+
+
+```{r}
+# 4.1 Vilken kategori av variabeln "Typ"  som var den vanligaste använda "post typen"?
+
+#fct_infreq() sorterar en factor i fallande ordning baserat på frekvensen
+library(ggplot2)
+
+df_fb %>%
+  ggplot(aes(x=(fct_infreq(post_type)), fill=post_type))+
+  geom_bar()+
+  labs(
+    title = "Antal inlägg per Post Type",
+    x = "Typ av inlägg",
+    y = "Antal inlägg"
+  ) +
+  theme_minimal()
+
+
+#Vanligaste typen är helt klart foton. 
+
+
+
+```
+
+
+```{r}
+# 4.2 Vilken månad hade flest inlägg?
+library(ggplot2)
+library(tidyverse)
+
+
+df_fb %>% 
+  ggplot(aes(x = fct_infreq(month_name), fill = month_name)) +
+  geom_bar() +
+  labs(
+    title = "Antal inlägg per Månad",
+    x = "Månad",
+    y = "Antal inlägg"
+  ) +
+  theme_minimal()
+
+
+#Oktober är månaen med flest inlägg per månad. 60 stycken. 
+
+``` 
+
+4.3 Vilken veckodag hade flest inlägg?
+ 
+```{r}
+library(ggplot2)
+library(tidyverse)
+df_fb %>% 
+  ggplot(aes(x = fct_infreq(weekday_name), fill = weekday_name)) +
+  geom_bar() +
+  labs(
+    title = "Antal inlägg per Veckodag",
+    x = "Veckodag",
+    y = "Antal inlägg"
+  ) +
+  theme_minimal()
+
+
+#Lördagar och fredag är dom dagar som har flest inlägg. Typ lika många söndag har något mer bara. Kanske
+
+```
+
+
+4.4: Vad för typ av inlägg var mest betalda vs icke betalda?
+```{r}
+
+library(ggplot2)
+library(tidyverse)
+
+df_fb %>%
+  ggplot(aes(x = fct_infreq(paid), fill = paid)) +
+  geom_bar() +
+  labs(
+    title = "Antal inlägg: Betalda vs. Icke-betalda",
+    x = "Betald status",
+    y = "Antal inlägg"
+  ) +
+  theme_minimal()
+
+
+#Dom flesta inlägg är inte betalda. 
+
+```
+
+5. Examination Assignment 5 – Exploring Correlation
+
+```{r}
+library(corrplot)
+
+#5.1 Calculate the Pearson correlation coefficient between ’Lifetime Post total reach’ and 'Lifetime Post total consumers.’ 
+cor(df_fb$lifetime_post_total_reach,df_fb$lifetime_post_consumers)
+
+#0.447908 #medelhög posetiv korrelation
+
+
+#5.2: Korrelationsplot 
+# skaapr först df utan na värden
+library(tidyr)
+
+df_fb_no_na_lifetime <- df_fb %>%
+  select(lifetime_post_total_reach,
+  lifetime_post_total_impressions,
+  lifetime_engaged_users,
+  lifetime_post_consumers,
+  lifetime_post_consumptions,
+  lifetime_post_impressions_liked,
+  lifetime_post_reach_like,
+  lifetime_page_engaged
+  ) %>%
+    drop_na()
+
+
+
+cor_matrix <- cor(df_fb_no_na_lifetime, use = "complete.obs", method = "pearson")
+
+corrplot(cor_matrix, 
+         method = "color",    # Använder färgade celler
+         order = "hclust",    # Ordnar variablerna med hierarkisk klustring
+         addCoef.col = "black",  # Visar korrelationskoefficienten med svart text
+         tl.col = "black",    # Sätter textfärgen för etiketter till svart
+         number.cex = 0.9)    # Justerar storleken på siffrorna
+
+## Kommentar:
+# Alla variablar har posetiv korrelation.
+# Vissa har högre dimensioner
+# Räckviddsrelaterade variabler är starkt korrelerade sinsemellan, och engagemangsvariabler är starkt korrelerade med varandra men endast måttligt med räckvidd.
+
+#När man går vidare kan man ta bort vissa variablar då dom i stort sett visar samma sak mer eller midnre. 
+
+# Kan vara bra att analysera räckvidsmått (hur många som nåtts) och med engagemangsmått (hur många som engagerat), snarare än räckvidsmått med varandra och vice versa. 
+
+```
+
+
+
+6. Examination Assignment 6 – Scatterplots and Contours for numeric data
+
+
+```{r}
+#Väljer "lifetime_post_total_reach"  (antalet unika användare som har sett ett inlägg och "lifetime_post_consumers" (antalet unika användare som har engagerad med inlägget)
+# Man kan anta att ett inlägg som når fler användare har potential att attrahera fler konsumenter, men sambandet är inte alltid linjärt. 
+
+## Skapar scatterplots
+
+library(ggplot2)
+library(tidyverse) 
+
+df_fb %>%
+  ggplot(aes(x=lifetime_post_total_reach, y=lifetime_post_consumers))+
+  geom_point(color="steelblue", alpha=0.6)+
+  geom_smooth(method = "loess", se = TRUE, color = "darkred") +
+  labs(title = "Samband mellan Reach och Post Consumers",
+       x = "Lifetime Post Total Reach",
+       y = "Lifetime Post Consumers") +
+  theme_minimal()
+
+
+"""
+Analys av scatterplotten: Jo högre lifetime post total reach, desto fler lifetime post consumers. Fler visningar tycks leda till fler faktiska interaktioner vilket ju är logiskt. 
+
+Finns dock icke linjär relation, den röda kurvan visar att detta samband inte är helt rak. Vid låga värden av “Reach” ökar “Consumers” snabbt, men sedan planar kurvan ut något i mitten för att återigen stiga vid riktigt höga räckviddsnivåer.
+
+
+Spridning: Puntkerna ligger rätt så spritt, högt och lågt. Vilket tyder på att andra faktorer också påverkar antalet konsumenter för en given räckvidd. Man kan nå många användare men det betyder inte alltid att man interagerar. 
+
+Man skulle nu kunna göra en regressionsmodell för att analysera sambandet bättre. 
+
+
+
+```
+
+
+Scatterplot med deisntetsplot
+
+```{r}
+library(ggplot2)
+# Skapa scatterplot med density-konturer
+ggplot(df_fb, aes(x = lifetime_post_total_reach, y = lifetime_post_consumers)) +
+  geom_point(color = "steelblue", alpha = 0.6) +
+  geom_density_2d(color = "darkred", size = 0.8) +
+  labs(title = "Scatterplot med Density-konturer",
+       x = "Lifetime Post Total Reach",
+       y = "Lifetime Post Consumers") +
+  theme_minimal()
+
+
+
+
+```
+
+Jämförelse mellan paid
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+
+# Ta bort NA-värden för de variabler som används
+df_fb_clean <- df_fb %>% 
+  drop_na(lifetime_post_total_reach, lifetime_post_consumers, paid)
+
+# Scatterplot med differentiering efter Paid
+ggplot(df_fb_clean, aes(x = lifetime_post_total_reach, 
+                        y = lifetime_post_consumers, 
+                        color = paid)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Scatterplot: Total Reach vs. Post Consumers - Paid",
+       x = "Lifetime Post Total Reach",
+       y = "Lifetime Post Consumers",
+       color = "Paid") +
+  theme_minimal()

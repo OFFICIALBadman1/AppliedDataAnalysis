@@ -1,0 +1,23 @@
+---
+
+title: "Week 7 Examination Assignments"
+author: "<Your Name>"
+date: "`r Sys.Date()`"
+format:
+html:
+toc: true
+toc-depth: 2
+------------
+
+
+```{r}
+library(readr)
+
+setwd("C:/Users/isajon-0/Desktop/examination 3 K0021N")
+
+#import
+
+loan3000 <- read_csv("loan3000.csv")
+print(str(loan3000))
+
+```

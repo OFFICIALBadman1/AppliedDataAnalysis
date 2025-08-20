@@ -1,0 +1,111 @@
+---
+title: "Logistic Regression Quadro Reference"
+format: html
+---
+
+# Logistic Regression Quadro Reference
+
+En snabbguide i fyra kvadranter för multipel logistisk regression med R. Klistra in denna `.qmd`-fil i din Quarto-editor för att ha alla kodexempel och förklaringar samlade.
+
+## Q1: Specificera & Anpassa
+**Bygg och tolka modeller**
+
+```{r}
+# Specificera modell med två prediktorer och interaktion
+mdl <- glm(
+  response ~ x1 * x2,
+  data   = dataset,
+  family = binomial
+)
+
+# Tolkning av koefficienter
+coef(mdl)         # log-odds
+exp(coef(mdl))    # odds-kvoter
+
+# Link-funktioner i binomial-familjen
+binomial()$linkfun  # logit: mu -> eta
+binomial()$linkinv  # plogis: eta -> mu
+```
+
+## Q2: Prediktion & Visualisering
+**Beräkna sannolikheter och klasser, visualisera resultat**
+
+```{r}
+library(tidyr)
+# Skapa ett grid över två numeriska prediktorer
+prediction_grid <- expand_grid(
+  x1 = seq(min(dataset$x1), max(dataset$x1), length = 100),
+  x2 = seq(min(dataset$x2), max(dataset$x2), length = 100)
+)
+
+# Lägg till prediktioner (sannolikheter och klasser)
+prediction_grid <- prediction_grid %>%
+  mutate(
+    .pred_prob  = predict(mdl, newdata = prediction_grid, type = "response"),
+    .pred_class = round(.pred_prob)
+  )
+
+# Visualisera med ggplot2
+ggplot(prediction_grid, aes(x = x1, y = .pred_prob, color = factor(.pred_class))) +
+  geom_line() +
+  facet_wrap(~ x2) +
+  labs(
+    title = "Predikterad sannolikhet över x1 och x2",
+    x = "x1",
+    y = "Sannolikhet",
+    color = "Klass"
+  )
+```
+
+## Q3: Utvärdera & Bedöm
+**Förvirringsmatris, ROC-kurva och AUC**
+
+```{r}
+library(yardstick)
+
+# Beräkna prediktioner för hela data
+data_eval <- dataset %>%
+  mutate(
+    .pred_prob  = predict(mdl, type = "response"),
+    .pred_class = round(.pred_prob)
+  )
+
+# Förvirringsmatris och plot
+confusion <- conf_mat(data_eval, truth = response, estimate = .pred_class)
+autoplot(confusion)
+
+# ROC-kurva och AUC
+roc_obj <- roc_curve(data_eval, response, .pred_prob)
+autoplot(roc_obj)
+roc_auc(data_eval, response, .pred_prob)
+```
+
+## Q4: Avancerat & Felsökning
+**Optimera själv, hantera överspridning, teori**
+
+```{r}
+# 1. Egen optimering via optim()
+neg_log_likelihood <- function(coefs) {
+  intercept <- coefs[1]
+  slope     <- coefs[2]
+  eta       <- intercept + slope * dataset$x1
+  p         <- plogis(eta)
+  -sum(dataset$y * log(p) + (1 - dataset$y) * log(1 - p))
+}
+opt_res <- optim(par = c(0, 0), fn = neg_log_likelihood)
+
+# 2. Hantera överspridning med quasibinomial
+mdl_quasi <- glm(
+  response ~ x1 + x2,
+  data   = dataset,
+  family = quasibinomial
+)
+
+# 3. Mixed-effects-modell för grupperad data
+# library(lme4)
+# mdl_mixed <- glmer(response ~ x1 + (1 | grupp), family = binomial, data = dataset)
+```
+
+---
+
+*Anpassa `response`, `x1`, `x2`, `dataset` och grupperingsvariabeln efter dina data.*

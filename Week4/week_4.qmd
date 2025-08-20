@@ -1,0 +1,182 @@
+
+---
+title: "Week 4 Examination Assignments"
+author: "Isak Jonsson Zachari"
+date: "2025-04-17"
+format: 
+  html:
+    toc: true                # Table of Contents
+    code-fold: true          # Collapse code chunks
+    code-tools: true         # Add code copy buttons
+    theme: cosmo             # Clean theme
+    css: styles.css          # Optional custom CSS
+---
+
+
+
+```{r}
+library(readr)
+library(dlookr)
+library(tidyverse)
+library(readxl)
+library(dplyr)
+
+path <- "global_superstore_2016.xlsx"
+#Läser in i en dataframe båda bladen från filen. Med map
+df_global_superstore <- excel_sheets(path) %>%
+    map_df(~ read_excel(path, sheet = .x) %>% #map_df går loopar igenom alla element i varje blad i excelfilen. För varje blad som gåtts igenom sätt dessa ihop till 1 df. 
+           mutate(Blad = .x)) #en kolumn Blad läggs till på varje rad 
+
+head(df_global_superstore)
+glimpse(df_global_superstore)
+summary(df_global_superstore) 
+
+
+
+
+```
+
+
+```{r}
+str(df_global_superstore)
+excel_blad <- excel_sheets(path)
+print(excel_blad)
+
+
+df_orders <- read_excel(path,sheet=1)
+df_returns <- read_excel(path,sheet=2)
+df_people <- read_excel(path,sheet=3)
+
+glimpse(df_orders)
+glimpse(df_returns)
+glimpse(df_people)
+```
+
+Kollar efter missing Values
+
+```{r}
+library(dplyr)
+
+# snabb NA analys för varje sheet 
+# alternativt  colSums(is.na(df_orders)) 
+map(list(orders = df_orders, returns = df_returns, people = df_people),
+    ~ summarise_all(.x, ~ sum(is.na(.)))) 
+
+# inga missing values
+```
+
+
+Plots nu:
+```{r}
+
+library(tidyverse) # We need both 'ggplot2' and 'dplyr' from this family.
+library(ggplot2)
+
+df_orders_profit_margin <- df_orders %>%
+  mutate("Profit_margin" = (Profit/Sales)) %>%
+  select(Profit_margin, Category)
+  
+head(df_orders_profit_margin)
+
+
+```
+
+
+```{r}
+library(ggplot2)
+df_orders_profit_margin %>%
+  ggplot(aes(x = Category,y = Profit_margin, fill = Category))+
+  geom_violin(trim=FALSE, alpha=0.5)+
+  geom_jitter(width = 0.15, alpha = 0.4, size = 0.8) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Profit Margin per Category",
+    y = "Profit Margin (%)", x = "Category"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+```
+
+
+ Merge the three tables into one “master” table
+ You’ll want a single data frame that carries:
+
+All order details (df_orders),
+
+A flag for whether it was returned (df_returns),
+
+The person responsible for that Region (df_people).
+
+
+```{r}
+top_subcats <- df_orders %>%
+  group_by(`Sub-Category`) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
+  arrange(desc(Total_Sales)) %>%
+  slice_head(n = 5) %>%
+  pull(`Sub-Category`)
+
+df_top <- df_orders %>%
+  filter(`Sub-Category` %in% top_subcats) %>%
+  mutate(Profit_margin = Profit / Sales)
+
+df_top %>%
+  ggplot(aes(x = `Sub-Category`, y = Profit_margin, fill = `Sub-Category`)) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 0.8) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Profit Margin for Top 5 Sub-Categories by Sales",
+    y = "Profit Margin (%)", x = "Sub-Category"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+
+```
+
+Time to shipping from order: Skillnad mellan order date och ship date sen plottas dessa för att se fördelningen 
+```{r}
+##vilken Ship mode är vanligaste? Standard 
+df_orders %>%
+  count(`Ship Mode`, sort = TRUE)
+
+#ny kolumn som är berknat ledtid
+df_orders <- df_orders %>%
+  mutate(`lead_time` = as.numeric(difftime(`Ship Date`, `Order Date`, units = "days")))
+
+df_orders %>%
+  ggplot(aes(x = lead_time)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "white") +
+  theme_minimal() 
+
+```
+
+```{r}
+
+ggplot(df_orders, aes(x=Discount, y=Profit))+
+  geom_point() + 
+  facet_grid(rows = vars(Segment), cols=vars(Market))
+
+```
+
+```{r}
+head(df_orders)
+glimpse(df_orders)
+df_orders %>%
+  filter()
+summary(df_orders$Discount)
+
+```
+
+
+
