@@ -1,0 +1,676 @@
+---
+title: "Week 6 Examination Assignment: Classification Bankloan"
+author: "Isak Jonsson Zachari"
+date: "2025-08-21"
+format: html
+---
+
+
+```{r install packages}
+# Core packages for logistic regression analysis
+pkgs <- c("tidyverse", "readr", "MASS" , "caret", "mice", "pROC",      "corrplot", "missForest")
+
+
+# Install packages that aren't already installed
+for (i in pkgs) {
+  if (!i %in% installed.packages()) {
+    install.packages(i, dependencies = TRUE)
+  }
+  require(i, character.only = TRUE)
+}
+```
+
+```{r librarys and inspection}
+library(tidyverse)
+library(readr)
+library(MASS)
+library(caret)
+library(pROC)
+
+
+df_bank <- read_delim("week6/bankloan.csv", delim=",")
+
+glimpse(df_bank)
+
+str(df_bank)
+head(df_bank)
+summary(df_bank)
+
+```
+
+## Fix variablan   datatypes
+```{r fix names and datatypes}
+
+#fix names and datatypes to factor
+df_bank_clean <- df_bank %>%
+  rename(
+    customer_id = ID,
+    age = Age,
+    experience = Experience,
+    income = Income,
+    zip_code = ZIP.Code,
+    family_size = Family,
+    cc_avg = CCAvg,
+    education = Education,
+    mortgage = Mortgage,
+    personal_loan = Personal.Loan,
+    securities_account = Securities.Account,
+    cd_account = CD.Account,
+    online = Online,
+    credit_card = CreditCard
+  ) %>%
+  mutate(
+    personal_loan = factor(personal_loan),
+    securities_account = factor(securities_account),
+    cd_account = factor(cd_account),
+    online = factor(online),
+    credit_card = factor(credit_card),
+    education = factor(education),
+    family_size = factor(family_size)
+  ) %>% dplyr::select(-customer_id, -zip_code)  # Use dplyr:: to avoid MASS conflict
+
+
+
+# Display cleaned structure
+str(df_bank_clean)
+head(df_bank_clean)
+summary(df_bank_clean)
+
+
+
+```
+
+```{r clearning}
+library(dplyr)
+
+#check missing values
+colSums(is.na(df_bank_clean))
+
+
+# Show examples of negative experience (fixed)
+cat("Examples of problematic rows:\n")
+df_bank_clean %>%
+  filter(experience < 0) %>%
+  dplyr::select(age, experience, education, personal_loan) %>%
+  head(10)
+
+cat("\nNegative experience values:", sum(df_bank_clean$experience < 0), "\n")
+
+
+df_bank_final <- df_bank_clean %>%
+  mutate(experience = ifelse(experience < 0, 0, experience))
+
+cat("Negative experience values after fix:", sum(df_bank_final$experience < 0), "\n")
+cat("Summary of experience variable:\n")
+summary(df_bank_final$experience)
+
+
+```
+
+## key observations
+- No missing values
+- 52 people with negative experience
+  - they're mostly young people (24-28) with higher education but negative work experienc.
+- removed experience is smaller than zero that is inpossible.
+
+```{r visualizaiton basic}
+# Distribution of key variables
+library(ggplot2)
+
+# Age distribution by loan approval
+ggplot(df_bank_final, aes(x = age, fill = personal_loan)) +
+  geom_histogram(binwidth = 2, alpha = 0.7, position = "dodge") +
+  labs(title = "Age Distribution by Loan Approval Status",
+       x = "Age", y = "Count")
+
+# Income vs loan approval
+ggplot(df_bank_final, aes(x = personal_loan, y = income, fill = personal_loan)) +
+  geom_boxplot() +
+  labs(title = "Income Distribution by Loan Approval Status",
+       x = "Loan Status", y = "Income")
+
+```
+
+## Summary :
+- Age is not that big change between classes, almost the same.
+
+ **90.4%** rejected vs **9.6%** approved, very inbalanced! Needs stratification
+
+
+
+
+```{r Exploratory Data Analysis}
+# 1. Check class balance (very important for logistic regression!)
+loan_table <- table(df_bank_final$personal_loan)
+print(loan_table)
+print(prop.table(loan_table) * 100)
+
+# 2. Basic descriptive statistics by loan status
+df_bank_final %>%
+  group_by(personal_loan) %>%
+  summarise(
+    count = n(),
+    mean_income = round(mean(income), 2),
+    median_income = median(income),
+    mean_age = round(mean(age), 2),
+    mean_experience = round(mean(experience), 2),
+    .groups = "drop"
+  )
+
+# 3. Check for multicollinearity
+numeric_vars <- df_bank_final %>% select_if(is.numeric)
+cor_matrix <- cor(numeric_vars)
+print(round(cor_matrix, 3))
+
+
+```
+
+
+
+## Summary Correlatioonmatrix
+** age–experience = 0.994 (!) → extrem multikollinearitet. eller ersätt dem med något som bryter sambandet, t.ex. career_start = age - experience (tolkas som ungefärlig startålder i arbetslivet).
+
+** income–cc_avg ≈ 0.65 → relativt hög
+
+
+```{r histogram income}
+ggplot(df_bank_final, aes(x = income)) +
+  geom_histogram(binwidth = 2, alpha = 0.7, position = "dodge") +
+  labs(title = "Income Distribution",
+       x = "income")
+
+
+```
+
+### **Clear Income Effect**
+- **Rejected**: Mean income = $66,200, median income: ≈ 59 (rejected)
+- **Approved**: Mean income = $145,000 (2.2x higher!), median income ≈ 142 (approved)
+- This will be your strongest predictor!
+
+```{r visualizaiton}
+
+# Income distribution by loan approval
+p1 <- ggplot(df_bank_final, aes(x = personal_loan, y = income, fill = personal_loan)) +
+  geom_boxplot() +
+  labs(title = "Income vs Loan Approval",
+       x = "Loan Status", y = "Income ($000s)") +
+  theme_minimal()
+
+# Education vs loan approval
+p2 <- ggplot(df_bank_final, aes(x = education, fill = personal_loan)) +
+  geom_bar(position = "fill") +
+  labs(title = "Loan Approval Rate by Education Level",
+       x = "Education Level", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p1)
+
+```
+
+## summary:
+Boxplot: Income vs Loan Status
+**Medianinkomst** ≈ 59 (rejected) vs ≈ 142 (approved). Stor nivåskillnad och tydlig separation i IQR , **Income är en stark prediktor**.
+
+Högre inkomst ökar oddsen för att få ett lån (vilket är logiskt)
+
+- Education vs arroved:
+  - Andelen approved ökar tydligt med hög  utbildningsnivå. Det är inte lika starkt som income, men pekar åt rätt håll.
+
+
+## Create career_start variabe because of multiorelanity between age and experience. (used as approximalty start age in worklife)
+career_start = age - experience
+
+- Vid vilken ålder började personen jobba?
+
+
+```{r career_start}
+
+# Skapa en ny variabel som är mer meningsfull
+df_bank_final <- df_bank_final %>%
+  mutate(career_start_age = age - experience)
+
+#summary
+summary(df_bank_final$career_start_age)
+
+#kolla korrelation nu
+# 3. Check for multicollinearity
+numeric_vars <- df_bank_final %>% select_if(is.numeric)
+cor_matrix <- cor(numeric_vars)
+print(round(cor_matrix, 3))
+
+```
+
+- alla började sin karriär mellan 23 och 30 år.
+- Mest typiskt (IQR) mellan 23 och 26 år,
+- median åldern för när man börjar jobba är 25 år (sannolikt då efter unviersiteteexamen?)
+
+- ingen hög korrelation med något alls ! borta
+
+
+
+
+## Cross-fold valitaiton och strattefied sampling
+
+```{r}
+library(caret)
+library(car)
+
+
+set.seed(123)
+
+# 1. VARIABEL SELECTION (remove  age and experience have new variable)
+df_bank_final <- df_bank_final %>%
+  dplyr::select(personal_loan,
+         career_start_age,
+         income,
+         family_size,
+         cc_avg,
+         education,
+         mortgage,
+         securities_account,
+         cd_account,
+         online,
+         credit_card)
+
+
+# 2. STRATIFIERAD TRAIN/TEST SPLIT (70/30)
+train_idx <- createDataPartition(df_bank_final$personal_loan,
+                                p = 0.7,
+                                list = FALSE)
+
+train_data <- df_bank_final[train_idx, ]
+test_data <- df_bank_final[-train_idx, ]
+
+# control class balance in train/test
+cat("Train set balance:")
+table(train_data$personal_loan)
+cat("\nTest set balance:")
+table(test_data$personal_loan)
+
+test_table <- table(test_data$personal_loan)
+print(test_table)
+
+
+```
+
+
+
+
+
+
+```{r initial model and stepwise}
+# Specify the full model using all of the potential predictors
+
+full_model <- glm(personal_loan ~ .,
+                    data = train_data,
+                    family = "binomial")
+
+#no predctors,
+null_model <- glm(personal_loan ~ 1, data = train_data, family = "binomial")
+
+#stepwise, start from nopredictors to full predictors.
+step_model <- step(null_model, scope = list(lower = null_model, upper = full_model), direction = "forward")
+
+library(car)
+vif(step_model)  # VIF ~ kollinearitet (tolka > 5-10 som problem)
+
+
+```
+
+
+## Prediction
+```{r predict}
+library(pROC)
+library(caret)
+
+# 1) Prediktioner på TEST (rätt längd)
+prob_test <- predict(step_model, newdata = test_data, type = "response")
+
+# 2) Håll kvar originalnivåerna "0","1" (case = "1")
+y_test <- factor(test_data$personal_loan, levels = c("0","1"))
+
+# 3) ROC + AUC (levels anger ordningen: control="0", case="1")
+roc_obj <- roc(response = y_test,
+               predictor = prob_test,
+               levels = c("0","1"))
+auc(roc_obj)
+plot(roc_obj, print.auc = TRUE, main = "ROC – stepwise model (test set)")
+
+```
+
+### Analys ROC kurva och AUC
+- Mycket bra följer inte alls diagonelen långt ifrån,
+AUC = 0,969, vilket är extremt bra!
+Modellen skiljer mycket väl på godkänd/avslag för lån!
+
+
+# # MODEL ADEQUACY CHECKING
+
+```{r}
+# MODEL ADEQUACY CHECKING
+# Check coefficients and significance
+summary(step_model)
+
+# Check for influential observations
+library(car)
+# Cook's distance
+cooksd <- cooks.distance(step_model)
+influential <- which(cooksd > (4/nrow(train_data)))
+cat("Number of influential observations:", length(influential))
+
+# Plot residuals vs fitted (for logistic regression)
+plot(step_model, which = 1)
+
+
+
+
+```
+
+### summary
+# MODEL ADEQUACY INTERPRETATION
+- Income (p < 2e-16) - STRONGEST predictor
+- Education levels 2 & 3 (p < 2e-16)
+- Family size 3 & 4 (p < 2e-10)
+- CD Account (p < 2e-16)
+- Credit Card (p = 3.25e-05) - NEGATIVE effect
+- Credit Card Average (p = 8.14e-05)
+- Online banking (p = 0.000272) - NEGATIVE effect
+- Securities Account (p = 0.004755) - NEGATIVE effect
+
+Non-significant predictors
+- Family size 2 (p = 0.449)
+- Mortgage (p = 0.110)
+
+
+
+
+```{r}
+
+# Interpret significance levels
+significant_vars <- c("income", "education2", "education3", "family_size3",
+                     "family_size4", "cd_account1", "credit_card1",
+                     "cc_avg", "online1", "securities_account1")
+
+```
+
+### Odds-Ratio
+```{r}
+# Calculate odds ratios and confidence intervals
+odds_ratios <- exp(coef(step_model))
+conf_intervals <- exp(confint(step_model))
+
+# Create a comprehensive odds ratio table
+odds_table <- data.frame(
+  Variable = names(odds_ratios),
+  Odds_Ratio = round(odds_ratios, 3),
+  CI_Lower = round(conf_intervals[,1], 3),
+  CI_Upper = round(conf_intervals[,2], 3),
+  Coefficient = round(coef(step_model), 3)
+)
+
+print("=== ODDS RATIOS WITH 95% CONFIDENCE INTERVALS ===")
+print(odds_table[-1,])  # Exclude intercept
+
+cat("\n=== BUSINESS INTERPRETATION OF ODDS RATIOS ===\n")
+
+# Income interpretation
+income_or <- odds_table[odds_table$Variable == "income", "Odds_Ratio"]
+cat(sprintf("INCOME: OR = %.3f\n", income_or))
+cat(sprintf("→ Each $1k increase in income MULTIPLIES loan approval odds by %.3f\n", income_or))
+cat(sprintf("→ $10k income increase = %.1fx higher odds\n", income_or^10))
+cat(sprintf("→ $50k vs $100k income = %.1fx vs %.1fx odds\n", income_or^50, income_or^100))
+
+# Education interpretation
+ed2_or <- odds_table[odds_table$Variable == "education2", "Odds_Ratio"]
+ed3_or <- odds_table[odds_table$Variable == "education3", "Odds_Ratio"]
+cat(sprintf("\nEDUCATION:\n"))
+cat(sprintf("→ High school (vs no diploma): %.1fx higher odds\n", ed2_or))
+cat(sprintf("→ Higher education (vs no diploma): %.1fx higher odds\n", ed3_or))
+
+# CD Account - strongest positive effect
+cd_or <- odds_table[odds_table$Variable == "cd_account1", "Odds_Ratio"]
+cat(sprintf("\nCD ACCOUNT: OR = %.1f\n", cd_or))
+cat("→ Having a CD account increases odds by %.0f%% (huge effect!)\n", (cd_or-1)*100)
+
+# Negative effects
+cc_or <- odds_table[odds_table$Variable == "credit_card1", "Odds_Ratio"]
+online_or <- odds_table[odds_table$Variable == "online1", "Odds_Ratio"]
+sec_or <- odds_table[odds_table$Variable == "securities_account1", "Odds_Ratio"]
+
+cat(sprintf("\nNEGATIVE EFFECTS:\n"))
+cat(sprintf("→ Having credit card DECREASES odds by %.0f%%\n", (1-cc_or)*100))
+cat(sprintf("→ Online banking DECREASES odds by %.0f%%\n", (1-online_or)*100))
+cat(sprintf("→ Securities account DECREASES odds by %.0f%%\n", (1-sec_or)*100))
+
+# Family size
+fam3_or <- odds_table[odds_table$Variable == "family_size3", "Odds_Ratio"]
+fam4_or <- odds_table[odds_table$Variable == "family_size4", "Odds_Ratio"]
+cat(sprintf("\nFAMILY SIZE (vs size 1):\n"))
+cat(sprintf("→ Family size 3: %.1fx higher odds\n", fam3_or))
+cat(sprintf("→ Family size 4: %.1fx higher odds\n", fam4_or))
+
+
+
+
+```
+
+Analysis:
+education:
+
+- High school (vs no diploma): 52.5x higher odds
+- Higher education (vs no diploma): 65.8x higher odds (HIGHEST)
+
+- Having credit card DECREASES odds by 66%
+- Online banking DECREASES odds by 52%
+- Securities account DECREASES odds by 65%
+
+Family size:
+- Family size 3: 6.6x higher odds
+- Family size 4: 4.9x higher odds
+
+
+```{r}
+# STEP 1: INITIAL CONFUSION MATRIX (default 0.5 cutoff)
+cat("=== INITIAL CONFUSION MATRIX (0.5 cutoff) ===\n")
+
+# Make predictions with default 0.5 threshold
+prob_test_default <- predict(step_model, newdata = test_data, type = "response")
+pred_test_default <- ifelse(prob_test_default > 0.5, "1", "0")
+pred_test_default <- factor(pred_test_default, levels = c("0", "1"))
+
+# Ensure test target has same levels
+y_test <- factor(test_data$personal_loan, levels = c("0", "1"))
+
+# Create confusion matrix
+library(caret)
+conf_matrix_default <- confusionMatrix(pred_test_default, y_test, positive = "1")
+print(conf_matrix_default)
+
+# Extract key values for interpretation
+tn <- conf_matrix_default$table[1,1]  # True Negatives (correctly rejected)
+fp <- conf_matrix_default$table[2,1]  # False Positives (incorrectly approved)
+fn <- conf_matrix_default$table[1,2]  # False Negatives (incorrectly rejected)
+tp <- conf_matrix_default$table[2,2]  # True Positives (correctly approved)
+
+cat("\n=== BUSINESS INTERPRETATION (0.5 cutoff) ===\n")
+cat(sprintf("✅ Correctly REJECTED: %d loans (True Negatives)\n", tn))
+cat(sprintf("✅ Correctly APPROVED: %d loans (True Positives)\n", tp))
+cat(sprintf("❌ MISSED OPPORTUNITIES: %d good applicants rejected (False Negatives)\n", fn))
+cat(sprintf("❌ POTENTIAL LOSSES: %d bad loans approved (False Positives)\n", fp))
+
+# Key metrics
+accuracy <- conf_matrix_default$overall["Accuracy"]
+sensitivity <- conf_matrix_default$byClass["Sensitivity"]  # True Positive Rate
+specificity <- conf_matrix_default$byClass["Specificity"]  # True Negative Rate
+precision <- conf_matrix_default$byClass["Pos Pred Value"]
+
+cat(sprintf("\nKEY METRICS at 0.5 cutoff:\n"))
+cat(sprintf("Accuracy: %.3f (%.1f%% of predictions correct)\n", accuracy, accuracy*100))
+cat(sprintf("Sensitivity: %.3f (%.1f%% of actual approvals caught)\n", sensitivity, sensitivity*100))
+cat(sprintf("Specificity: %.3f (%.1f%% of actual rejections caught)\n", specificity, specificity*100))
+cat(sprintf("Precision: %.3f (%.1f%% of predicted approvals are correct)\n", precision, precision*100))
+
+```
+
+```{r}
+# STEP 2: CUTOFF SELECTION ANALYSIS
+cat("\n=== CUTOFF SELECTION ANALYSIS ===\n")
+
+# Test multiple cutoffs to find optimal
+cutoffs_to_test <- seq(0.1, 0.9, by = 0.1)
+cutoff_results <- data.frame()
+
+for(cutoff in cutoffs_to_test) {
+  pred_temp <- ifelse(prob_test_default > cutoff, "1", "0")
+  pred_temp <- factor(pred_temp, levels = c("0", "1"))
+  cm_temp <- confusionMatrix(pred_temp, y_test, positive = "1")
+
+  cutoff_results <- rbind(cutoff_results, data.frame(
+    Cutoff = cutoff,
+    Accuracy = cm_temp$overall["Accuracy"],
+    Sensitivity = cm_temp$byClass["Sensitivity"],
+    Specificity = cm_temp$byClass["Specificity"],
+    Precision = cm_temp$byClass["Pos Pred Value"],
+    F1_Score = cm_temp$byClass["F1"],
+    TP = cm_temp$table[2,2],
+    FP = cm_temp$table[2,1],
+    FN = cm_temp$table[1,2],
+    TN = cm_temp$table[1,1]
+  ))
+}
+
+# Add Youden's Index (Sensitivity + Specificity - 1)
+cutoff_results$Youden <- cutoff_results$Sensitivity + cutoff_results$Specificity - 1
+
+print("CUTOFF COMPARISON TABLE:")
+print(round(cutoff_results[,1:7], 3))
+
+# Find optimal cutoff using different criteria
+optimal_youden <- cutoff_results[which.max(cutoff_results$Youden), "Cutoff"]
+optimal_f1 <- cutoff_results[which.max(cutoff_results$F1_Score), "Cutoff"]
+optimal_accuracy <- cutoff_results[which.max(cutoff_results$Accuracy), "Cutoff"]
+
+cat(sprintf("\nOPTIMAL CUTOFFS by different criteria:\n"))
+cat(sprintf("Youden's Index (Sens+Spec-1): %.1f\n", optimal_youden))
+cat(sprintf("F1-Score: %.1f\n", optimal_f1))
+cat(sprintf("Accuracy: %.1f\n", optimal_accuracy))
+
+# ROC-based optimal cutoff
+library(pROC)
+coords_obj <- coords(roc_obj, "best", best.method = "youden")
+roc_optimal_cutoff <- coords_obj$threshold
+
+cat(sprintf("ROC-based optimal cutoff: %.3f\n", roc_optimal_cutoff))
+
+
+```
+
+
+```{r}
+pred_test_default <- ifelse(prob_test_default > 0.9, "1", "0")
+pred_test_default <- factor(pred_test_default, levels = c("0", "1"))
+
+# Ensure test target has same levels
+y_test <- factor(test_data$personal_loan, levels = c("0", "1"))
+
+# Create confusion matrix
+library(caret)
+conf_matrix_default <- confusionMatrix(pred_test_default, y_test, positive = "1")
+print(conf_matrix_default)
+
+
+
+```
+
+## analys
+### **Fyra Kritiska Siffror:**
+- **1356 (True Negatives)**: ✅ Korrekt AVSLAG (inga lån som fick avslag)
+- **74 (True Positives)**: ✅ Korrekt BEVILJAT (lån som fick beviljat)
+- **70 (False Negatives)**: ❌ MISSADE MÖJLIGHETER (borde fått lån men fick avslag)
+- **0 (False Positives)**: ❌ FELAKTIGA BEVILJAN (inga dåliga lån beviljades) - **PERFEKT!**
+
+Inga FP all vilket är jättebra, inom banker vill man minimera det helt!
+**Accuracy = 95.33%** = 1430 korrekta av 1500 totalt
+
+
+
+### **🎯 Strategisk Tolkning:**
+**"Better Safe Than Sorry" Filosofi:**
+- Banken säger: "Vi godkänner bara de 74 SÄKRASTE låntagarna"
+- Missar 70 potentiellt goda kunder MEN undviker ALLA dåliga
+- I banksektorn kostar dåliga lån 10x mer än missade möjligheter
+
+**Kappa = 0.6565**
+- "Substantial agreement" mellan modell och verklighet
+- Mycket bra prestanda utöver slumpmässig gissning
+
+## 🔥 **Slutsats: En Bankrevolution!**
+Din modell har upptäckt att **ULTRA-KONSERVATIV** strategi är mest lönsam:
+✅ **Säg NEJ oftare** = Högre vinst ✅ **Perfect Precision** = Noll dåliga lån
+✅ **High Specificity** = Undvik alla riskkunder ✅ **Strategic Trade-off** = Kvalitet över kvantitet
+Detta är klassisk **Risk Management** - ibland är det mest lönsamma att vara selektiv och bara välja de absolut säkraste kunderna!
+
+Din modell bevisar att **"Banking is about saying NO"** kan vara den mest lönsamma strategin! 🏦💎
+
+
+
+-------------------
+# TASK 2
+After your model is finalized, 15 new customers submit a loan application. Use your model and cutoff to approve or reject these 15 applicants.
+```{r}
+new_applicants <- data.frame(
+  ID = 1:15,
+  Age = c(38, 58, 39, 64, 33, 24, 46, 52, 44, 56, 53, 60, 46, 43, 61),
+  Experience = c(12, 32, 14, 37, 6, -2, 20, 28, 19, 30, 29, 35, 22, 19, 35),
+  Income = c(48, 73, 155, 138, 78, 150, 91, 178, 74, 111, 118, 48, 125, 83, 74),
+  ZIP.Code = c(95617, 94523, 94577, 94709, 90250, 94720, 92521, 92647, 90041, 93106, 94066, 94538, 94536, 92691, 91320),
+  Family = c(4, 2, 2, 2, 4, 2, 4, 3, 4, 4, 2, 3, 2, 4, 2),
+  CCAvg = c(0.2, 0.7, 3.9, 2.8, 2.0, 2.0, 2.6, 5.4, 1.9, 0.3, 0.3, 1.5, 4.7, 2.0, 0.7),
+  Education = c(3, 2, 1, 2, 2, 1, 3, 3, 3, 1, 1, 1, 3, 3, 2),
+  Mortgage = c(0, 0, 0, 0, 119, 0, 0, 147, 0, 372, 0, 0, 0, 0, 0),
+  Securities.Account = c(0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0),
+  CD.Account = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0),
+  Online = c(1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1),
+  CreditCard = c(0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+)
+
+
+str(new_applicants)
+
+new_applicants_clean <- new_applicants %>%
+  rename(
+    customer_id = ID,
+    age = Age,
+    experience = Experience,
+    income = Income,
+    zip_code = ZIP.Code,
+    family_size = Family,
+    cc_avg = CCAvg,
+    education = Education,
+    mortgage = Mortgage,
+    securities_account = Securities.Account,
+    cd_account = CD.Account,
+    online = Online,
+    credit_card = CreditCard
+  ) %>%
+  mutate(
+    securities_account = factor(securities_account),
+    cd_account = factor(cd_account),
+    online = factor(online),
+    credit_card = factor(credit_card),
+    education = factor(education),
+    family_size = factor(family_size)
+  ) %>% dplyr::select(-customer_id, -zip_code)
+
+
+str(new_applicants_clean)
+
+
+```
+
+```{r}
+prob_new <- predict(logit_model, newdata = new_applicants, type = "response")
+
+
+```

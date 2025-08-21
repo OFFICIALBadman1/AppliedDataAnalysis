@@ -1,182 +1,233 @@
-
----
-title: "Week 4 Examination Assignments"
+title: "Week 4 – Global Superstore: Advanced R visuals for Power BI"
 author: "Isak Jonsson Zachari"
-date: "2025-04-17"
-format: 
+date: "`r format(Sys.Date())`"
+format:
   html:
-    toc: true                # Table of Contents
-    code-fold: true          # Collapse code chunks
-    code-tools: true         # Add code copy buttons
-    theme: cosmo             # Clean theme
-    css: styles.css          # Optional custom CSS
+    toc: true
+    toc-location: left
+    code-fold: true
+    code-tools: true
+execute:
+  echo: true
+  warning: false
+  message: false
+--------------
+
+# About this notebook
+
+This Quarto document prepares **advanced `ggplot2` visuals** and the underlying data wrangling you can copy into the **R script visual** in Power BI. It also includes short explanations of **what each visual shows** and **why it adds value beyond standard Power BI visuals**. Keep this file with your dataset so you can reproduce the figures instantly during the exam.
+
+> Dataset: `global_superstore_2016.xlsx` (sheets: *Orders*, *Returns*, *People*).
+
 ---
 
-
+# 1) Libraries & theme
 
 ```{r}
-library(readr)
-library(dlookr)
-library(tidyverse)
 library(readxl)
 library(dplyr)
-
-path <- "global_superstore_2016.xlsx"
-#Läser in i en dataframe båda bladen från filen. Med map
-df_global_superstore <- excel_sheets(path) %>%
-    map_df(~ read_excel(path, sheet = .x) %>% #map_df går loopar igenom alla element i varje blad i excelfilen. För varje blad som gåtts igenom sätt dessa ihop till 1 df. 
-           mutate(Blad = .x)) #en kolumn Blad läggs till på varje rad 
-
-head(df_global_superstore)
-glimpse(df_global_superstore)
-summary(df_global_superstore) 
-
-
-
-
-```
-
-
-```{r}
-str(df_global_superstore)
-excel_blad <- excel_sheets(path)
-print(excel_blad)
-
-
-df_orders <- read_excel(path,sheet=1)
-df_returns <- read_excel(path,sheet=2)
-df_people <- read_excel(path,sheet=3)
-
-glimpse(df_orders)
-glimpse(df_returns)
-glimpse(df_people)
-```
-
-Kollar efter missing Values
-
-```{r}
-library(dplyr)
-
-# snabb NA analys för varje sheet 
-# alternativt  colSums(is.na(df_orders)) 
-map(list(orders = df_orders, returns = df_returns, people = df_people),
-    ~ summarise_all(.x, ~ sum(is.na(.)))) 
-
-# inga missing values
-```
-
-
-Plots nu:
-```{r}
-
-library(tidyverse) # We need both 'ggplot2' and 'dplyr' from this family.
+library(tidyr)
+library(stringr)
+library(forcats)
 library(ggplot2)
+library(scales)
 
-df_orders_profit_margin <- df_orders %>%
-  mutate("Profit_margin" = (Profit/Sales)) %>%
-  select(Profit_margin, Category)
-  
-head(df_orders_profit_margin)
-
-
-```
-
-
-```{r}
-library(ggplot2)
-df_orders_profit_margin %>%
-  ggplot(aes(x = Category,y = Profit_margin, fill = Category))+
-  geom_violin(trim=FALSE, alpha=0.5)+
-  geom_jitter(width = 0.15, alpha = 0.4, size = 0.8) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  labs(
-    title = "Profit Margin per Category",
-    y = "Profit Margin (%)", x = "Category"
-  ) +
-  theme_minimal() +
+# clean minimal look across plots
+base_theme <- theme_minimal(base_size = 12) +
   theme(
-    plot.title = element_text(hjust = 0.5, face = "bold"),
-    axis.title = element_text(face = "bold"),
+    plot.title   = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle= element_text(hjust = 0.5),
+    axis.title   = element_text(face = "bold"),
     legend.position = "none"
   )
 
+theme_set(base_theme)
 ```
 
-
- Merge the three tables into one “master” table
- You’ll want a single data frame that carries:
-
-All order details (df_orders),
-
-A flag for whether it was returned (df_returns),
-
-The person responsible for that Region (df_people).
-
+# 2) Import – keep sheets separate
 
 ```{r}
-top_subcats <- df_orders %>%
+path <- "Week4/global_superstore_2016.xlsx"  # <- adjust if your path differs
+orders  <- read_excel(path, sheet = "Orders")
+returns <- read_excel(path, sheet = "Returns")
+people  <- read_excel(path, sheet = "People")
+
+# sanity checks used in oral explanation
+stopifnot(all(c("Sales","Profit","Discount","Category","Sub-Category","Market","Segment",
+               "Order Date","Ship Date","Ship Mode") %in% names(orders)))
+```
+
+## Missing-data snapshot (for talking points)
+
+```{r}
+quick_na <- list(
+  Orders  = colSums(is.na(orders)),
+  Returns = colSums(is.na(returns)),
+  People  = colSums(is.na(people))
+)
+quick_na
+```
+
+# 3) Helpful transformations (once)
+
+```{r}
+orders_t <- orders %>%
+  mutate(
+    profit_margin = Profit / Sales,                      # unitless (fraction)
+    lead_time     = as.numeric(difftime(`Ship Date`, `Order Date`, units = "days")),
+    # guard against weird negative diffs in the file (data quality)
+    lead_time     = ifelse(lead_time < 0, NA, lead_time),
+    # reorder categories to a consistent order in plots
+    Category      = fct_infreq(Category)
+  )
+```
+
+## Quick descriptive summaries (useful to cite during demo)
+
+```{r}
+summary_tbl <- orders_t %>%
+  summarise(
+    n_orders      = n(),
+    med_margin    = median(profit_margin, na.rm = TRUE),
+    mean_discount = mean(Discount, na.rm = TRUE),
+    med_lead_days = median(lead_time, na.rm = TRUE)
+  )
+summary_tbl
+```
+
+---
+
+# 4) Visual A – Profit margin by **Category** (violin + jitter)
+
+This combines a **distribution view** (violin) with **raw observations** (jitter). Standard PBI does not offer violin plots, so this is a good candidate for the R visual. Outliers are informative here (loss-making items below 0%).
+
+```{r}
+fig.width=7; fig.height=9
+orders_t %>%
+  ggplot(aes(x = Category, y = profit_margin, fill = Category)) +
+  geom_violin(trim = FALSE, alpha = 0.5) +
+  geom_jitter(width = 0.15, alpha = 0.35, size = 0.6) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Profit Margin per Category", y = "Profit Margin (%)", x = "Category")
+```
+
+**Reading the plot.** Wider sections indicate more orders around that margin; long tails below 0% highlight **loss-making** orders. Use this to discuss pricing/discount policy by category.
+
+---
+
+# 5) Visual B – Profit margin for **Top-5 Sub‑Categories by Sales**
+
+We first identify the five sub-categories with the highest total sales, then repeat the margin violin. Reordering by sales makes the message crisp.
+
+```{r}
+# find top-5 by sales
+top5_subcats <- orders_t %>%
   group_by(`Sub-Category`) %>%
-  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
-  arrange(desc(Total_Sales)) %>%
-  slice_head(n = 5) %>%
-  pull(`Sub-Category`)
+  summarise(total_sales = sum(Sales, na.rm = TRUE), .groups = "drop") %>%
+  slice_max(total_sales, n = 5) %>%
+  arrange(desc(total_sales))
 
-df_top <- df_orders %>%
-  filter(`Sub-Category` %in% top_subcats) %>%
-  mutate(Profit_margin = Profit / Sales)
+orders_top5 <- orders_t %>%
+  semi_join(top5_subcats, by = "Sub-Category") %>%
+  mutate(`Sub-Category` = fct_reorder(`Sub-Category`, Sales, .fun = sum, .desc = TRUE))
 
-df_top %>%
-  ggplot(aes(x = `Sub-Category`, y = Profit_margin, fill = `Sub-Category`)) +
+orders_top5 %>%
+  ggplot(aes(x = `Sub-Category`, y = profit_margin, fill = `Sub-Category`)) +
   geom_violin(trim = FALSE, alpha = 0.6) +
-  geom_jitter(width = 0.15, alpha = 0.4, size = 0.8) +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  labs(
-    title = "Profit Margin for Top 5 Sub-Categories by Sales",
-    y = "Profit Margin (%)", x = "Sub-Category"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold"),
-    axis.title = element_text(face = "bold"),
-    legend.position = "none"
-  )
-
-
+  geom_jitter(width = 0.15, alpha = 0.35, size = 0.6) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Profit Margin for Top 5 Sub‑Categories by Sales",
+       y = "Profit Margin (%)", x = "Sub‑Category")
 ```
 
-Time to shipping from order: Skillnad mellan order date och ship date sen plottas dessa för att se fördelningen 
+**Reading the plot.** Compare dispersion and negative tails across your best sellers; a sub‑category with **high sales but many negative margins** is a prime target for pricing or cost action.
+
+---
+
+# 6) Visual C – **Lead time** distribution (days)
+
+This uses a histogram to reveal operational patterns (e.g., *Same Day*, *First/Second Class*, *Standard*). Quick anomalies (negatives) were filtered to NA.
+
 ```{r}
-##vilken Ship mode är vanligaste? Standard 
-df_orders %>%
-  count(`Ship Mode`, sort = TRUE)
-
-#ny kolumn som är berknat ledtid
-df_orders <- df_orders %>%
-  mutate(`lead_time` = as.numeric(difftime(`Ship Date`, `Order Date`, units = "days")))
-
-df_orders %>%
+orders_t %>%
   ggplot(aes(x = lead_time)) +
-  geom_histogram(binwidth = 1, fill = "skyblue", color = "white") +
-  theme_minimal() 
-
+  geom_histogram(binwidth = 1, color = "white") +
+  labs(title = "Distribution of Lead Time (days)", x = "Lead time (days)", y = "Orders")
 ```
+
+**Reading the plot.** Clusters near 0–1 days vs 3–6 days often mirror shipping modes. Combine with a slicer on *Ship Mode* in Power BI to compare service levels.
+
+---
+
+# 7) Visual D – **Discount vs Profit** across Markets & Segments
+
+A faceted scatter with a light trend helps you show where discounts correlate with losses. This is another view that benefits from the flexibility of the R visual.
 
 ```{r}
-
-ggplot(df_orders, aes(x=Discount, y=Profit))+
-  geom_point() + 
-  facet_grid(rows = vars(Segment), cols=vars(Market))
-
+orders_t %>%
+  ggplot(aes(x = Discount, y = Profit)) +
+  geom_point(alpha = 0.35, size = 0.8) +
+  geom_smooth(method = "loess", se = FALSE) +
+  facet_grid(rows = vars(Segment), cols = vars(Market)) +
+  labs(title = "Discount vs Profit by Market and Segment",
+       x = "Discount (fraction)", y = "Profit ($)")
 ```
+
+**Reading the plot.** Downward trends indicate segments/markets where discounting erodes profitability faster. Use this to set **discount thresholds** or **approval rules**.
+
+---
+
+# 8) Small KPIs (tables you can paste to Power BI as needed)
+
+These support narration during the demo and are easy to reproduce.
 
 ```{r}
-head(df_orders)
-glimpse(df_orders)
-df_orders %>%
-  filter()
-summary(df_orders$Discount)
+# Most common ship mode
+orders_t %>% count(`Ship Mode`, sort = TRUE) %>% mutate(share = n/sum(n))
 
+# Median profit margin by Category
+orders_t %>% group_by(Category) %>% summarise(median_margin = median(profit_margin, na.rm = TRUE))
+
+# Top countries by profit (useful to map in Power BI)
+orders_t %>% group_by(Country) %>% summarise(total_profit = sum(Profit, na.rm = TRUE)) %>% slice_max(total_profit, n = 10)
 ```
 
+---
 
+# 9) How to integrate these in **Power BI** (R script visual)
 
+1. Install R locally and ensure packages abo
+
+measure 'Total Sales' = SUM(Orders[sales])
+	formatString: "$#,##0"
+	lineageTag: [unique-id]
+
+measure 'Total Profit' = SUM(Orders[profit])
+	formatString: "$#,##0"
+	lineageTag: [unique-id]
+
+measure 'Total Orders' = COUNTROWS(Orders)
+	formatString: "#,##0"
+	lineageTag: [unique-id]
+
+measure 'Avg Order Value' = DIVIDE([Total Sales], [Total Orders], 0)
+	formatString: "$#,##0.00"
+	lineageTag: [unique-id]
+
+measure 'Return Rate' = 
+	DIVIDE(
+		COUNTROWS(Returns),
+		[Total Orders],
+		0
+	)
+	formatString: "0.00%"
+	lineageTag: [unique-id]
+
+measure 'Profit Margin %' = 
+	DIVIDE(
+		[Total Profit],
+		[Total Sales],
+		0
+	)
+	formatString: "0.00%"
+	lineageTag: [unique-id]
